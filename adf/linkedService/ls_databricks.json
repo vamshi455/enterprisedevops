@@ -1,0 +1,13 @@
+{
+  "name": "ls_databricks",
+  "properties": {
+    "type": "AzureDatabricks",
+    "typeProperties": {
+      "domain": "https://adb-0000000000000000.0.azuredatabricks.net",
+      "authentication": "MSI",
+      "workspaceResourceId": "/subscriptions/<sub>/resourceGroups/rg-shell-data-dev/providers/Microsoft.Databricks/workspaces/dbw-shell-data-dev",
+      "existingClusterId": "@linkedService().clusterId"
+    },
+    "parameters": { "clusterId": { "type": "String" } }
+  }
+}

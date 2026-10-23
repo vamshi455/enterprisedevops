@@ -1,0 +1,36 @@
+bundle:
+  name: shell-data
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for this environment
+  run_as_sp:
+    description: Service principal application id used for jobs in this env
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace: { host: https://adb-dev-REPLACE.azuredatabricks.net }
+    variables: { catalog: dev_shell_data, run_as_sp: "00000000-0000-0000-0000-00000000dev0" }
+  qa:
+    mode: production
+    workspace: { host: https://adb-qa-REPLACE.azuredatabricks.net, root_path: /Workspace/Shared/shell-data }
+    variables: { catalog: qa_shell_data, run_as_sp: "00000000-0000-0000-0000-0000000000qa" }
+    run_as:
+      service_principal_name: ${var.run_as_sp}
+  uat:
+    mode: production
+    workspace: { host: https://adb-uat-REPLACE.azuredatabricks.net, root_path: /Workspace/Shared/shell-data }
+    variables: { catalog: uat_shell_data, run_as_sp: "00000000-0000-0000-0000-000000000uat" }
+    run_as:
+      service_principal_name: ${var.run_as_sp}
+  prod:
+    mode: production
+    workspace: { host: https://adb-prod-REPLACE.azuredatabricks.net, root_path: /Workspace/Shared/shell-data }
+    variables: { catalog: prod_shell_data, run_as_sp: "00000000-0000-0000-0000-00000000prod" }
+    run_as:
+      service_principal_name: ${var.run_as_sp}

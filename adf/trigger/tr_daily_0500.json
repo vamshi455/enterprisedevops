@@ -1,0 +1,8 @@
+{
+  "name": "tr_daily_0500",
+  "properties": {
+    "type": "ScheduleTrigger", "runtimeState": "Stopped",
+    "pipelines": [ { "pipelineReference": { "referenceName": "pl_ingest_sales", "type": "PipelineReference" } } ],
+    "typeProperties": { "recurrence": { "frequency": "Day", "interval": 1, "startTime": "2026-01-01T05:00:00Z", "timeZone": "UTC" } }
+  }
+}

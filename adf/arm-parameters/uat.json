@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "factoryName": { "value": "adf-shell-data-uat" },
+    "ls_adls_landing_properties_typeProperties_url": { "value": "https://stshelldatauat.dfs.core.windows.net/" },
+    "ls_databricks_properties_typeProperties_domain": { "value": "https://adb-uat-REPLACE.azuredatabricks.net" },
+    "ls_databricks_properties_typeProperties_workspaceResourceId": { "value": "/subscriptions/<sub>/resourceGroups/rg-shell-data-uat/providers/Microsoft.Databricks/workspaces/dbw-shell-data-uat" },
+    "default_properties_env_value": { "value": "uat" },
+    "default_properties_uc_catalog_value": { "value": "uat_shell_data" }
+  }
+}

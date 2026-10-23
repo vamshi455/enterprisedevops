@@ -1,0 +1,31 @@
+# Build once: ADF ARM template + Databricks bundle + SQL migrations + release tooling.
+parameters:
+  - name: root
+    type: string
+    default: $(Build.SourcesDirectory)
+
+steps:
+  - task: NodeTool@0
+    inputs: { versionSpec: "20.x" }
+  - script: npm install
+    workingDirectory: ${{ parameters.root }}/adf
+    displayName: Install ADF utilities
+  - script: >
+      npm run build export ${{ parameters.root }}/adf
+      /subscriptions/$(devSubscriptionId)/resourceGroups/rg-shell-data-dev/providers/Microsoft.DataFactory/factories/adf-shell-data-dev
+      "ArmTemplate"
+    workingDirectory: ${{ parameters.root }}/adf
+    displayName: Export ADF ARM template (automated publish — no manual 'Publish' button)
+  - task: CopyFiles@2
+    inputs:
+      SourceFolder: ${{ parameters.root }}
+      Contents: |
+        adf/arm-parameters/**
+        adf/ArmTemplate/**
+        databricks/**
+        sql/**
+        scripts/**
+        releases/**
+      TargetFolder: $(Build.ArtifactStagingDirectory)/drop
+  - publish: $(Build.ArtifactStagingDirectory)/drop
+    artifact: drop

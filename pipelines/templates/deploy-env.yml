@@ -1,0 +1,69 @@
+# Deploy one environment from the immutable 'drop' artifact: UC SQL -> Databricks -> ADF.
+# Order matters: tables/views first, then jobs/notebooks that use them, then ADF which calls the jobs.
+parameters:
+  - name: env
+    type: string
+  - name: serviceConnection
+    type: string
+
+steps:
+  - download: current
+    artifact: drop
+
+  # 1) Unity Catalog DDL (versioned, idempotent)
+  - task: UsePythonVersion@0
+    inputs: { versionSpec: "3.11" }
+  - script: |
+      pip install databricks-sql-connector
+      python scripts/sql/apply_migrations.py --env ${{ parameters.env }}
+    workingDirectory: $(Pipeline.Workspace)/drop
+    displayName: "[${{ parameters.env }}] Unity Catalog migrations"
+    env:
+      DATABRICKS_HOST: $(databricksHost)
+      DATABRICKS_TOKEN: $(databricksToken)
+      DATABRICKS_WAREHOUSE_HTTP_PATH: $(warehouseHttpPath)
+      RELEASE_ID: $(releaseId)
+
+  # 2) Databricks Asset Bundle
+  - script: |
+      curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+      databricks bundle deploy -t ${{ parameters.env }}
+    workingDirectory: $(Pipeline.Workspace)/drop/databricks
+    displayName: "[${{ parameters.env }}] Databricks bundle deploy"
+    env:
+      ARM_TENANT_ID: $(tenantId)
+      ARM_CLIENT_ID: $(spClientId)
+      ARM_CLIENT_SECRET: $(spClientSecret)
+
+  # 3) ADF: stop triggers -> ARM deploy -> clean up deleted resources & restart triggers
+  - task: AzurePowerShell@5
+    displayName: "[${{ parameters.env }}] ADF pre-deployment (stop triggers)"
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      ScriptPath: $(Pipeline.Workspace)/drop/adf/ArmTemplate/PrePostDeploymentScript.Ver2.ps1
+      ScriptArguments: >
+        -armTemplate "$(Pipeline.Workspace)/drop/adf/ArmTemplate/ARMTemplateForFactory.json"
+        -ResourceGroupName $(resourceGroup) -DataFactoryName $(factoryName)
+        -predeployment $true -deleteDeployment $false
+      azurePowerShellVersion: LatestVersion
+  - task: AzureResourceManagerTemplateDeployment@3
+    displayName: "[${{ parameters.env }}] ADF ARM deployment"
+    inputs:
+      deploymentScope: Resource Group
+      azureResourceManagerConnection: ${{ parameters.serviceConnection }}
+      subscriptionId: $(subscriptionId)
+      resourceGroupName: $(resourceGroup)
+      location: $(location)
+      csmFile: $(Pipeline.Workspace)/drop/adf/ArmTemplate/ARMTemplateForFactory.json
+      csmParametersFile: $(Pipeline.Workspace)/drop/adf/arm-parameters/${{ parameters.env }}.json
+      deploymentMode: Incremental
+  - task: AzurePowerShell@5
+    displayName: "[${{ parameters.env }}] ADF post-deployment (cleanup + start triggers)"
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      ScriptPath: $(Pipeline.Workspace)/drop/adf/ArmTemplate/PrePostDeploymentScript.Ver2.ps1
+      ScriptArguments: >
+        -armTemplate "$(Pipeline.Workspace)/drop/adf/ArmTemplate/ARMTemplateForFactory.json"
+        -ResourceGroupName $(resourceGroup) -DataFactoryName $(factoryName)
+        -predeployment $false -deleteDeployment $true
+      azurePowerShellVersion: LatestVersion

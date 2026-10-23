@@ -1,0 +1,7 @@
+{
+  "Microsoft.DataFactory/factories/linkedServices": {
+    "*": { "properties": { "typeProperties": { "url": "=", "domain": "=", "workspaceResourceId": "=", "existingClusterId": "=" } } }
+  },
+  "Microsoft.DataFactory/factories/globalparameters": { "properties": { "*": { "value": "=" } } },
+  "Microsoft.DataFactory/factories/triggers": { "properties": { "typeProperties": { "recurrence": { "startTime": "=" } } } }
+}

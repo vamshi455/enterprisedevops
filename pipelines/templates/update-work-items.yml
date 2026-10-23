@@ -1,0 +1,22 @@
+# Moves every work item in the release manifest to a state and tags it, so the board
+# always shows which environment each story is in.
+parameters:
+  - name: state
+    type: string
+  - name: tag
+    type: string
+
+steps:
+  - download: current
+    artifact: manifest
+  - script: |
+      set -e
+      az extension add --name azure-devops -y >/dev/null
+      for wi in $(python3 -c "import json;print(' '.join(map(str,json.load(open('$(Pipeline.Workspace)/manifest/manifest.json'))['work_items'])))"); do
+        az boards work-item update --id "$wi" --state "${{ parameters.state }}" \
+          --fields "System.Tags=${{ parameters.tag }}" \
+          --discussion "Release $(releaseId) — $(System.StageDisplayName). Run: $(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)" \
+          --org "$(System.CollectionUri)" >/dev/null && echo "WI $wi -> ${{ parameters.state }}"
+      done
+    displayName: "Work items -> ${{ parameters.state }}"
+    env: { AZURE_DEVOPS_EXT_PAT: $(System.AccessToken) }

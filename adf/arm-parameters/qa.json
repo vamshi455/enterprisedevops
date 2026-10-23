@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "factoryName": { "value": "adf-shell-data-qa" },
+    "ls_adls_landing_properties_typeProperties_url": { "value": "https://stshelldataqa.dfs.core.windows.net/" },
+    "ls_databricks_properties_typeProperties_domain": { "value": "https://adb-qa-REPLACE.azuredatabricks.net" },
+    "ls_databricks_properties_typeProperties_workspaceResourceId": { "value": "/subscriptions/<sub>/resourceGroups/rg-shell-data-qa/providers/Microsoft.Databricks/workspaces/dbw-shell-data-qa" },
+    "default_properties_env_value": { "value": "qa" },
+    "default_properties_uc_catalog_value": { "value": "qa_shell_data" }
+  }
+}

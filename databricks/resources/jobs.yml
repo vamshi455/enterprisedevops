@@ -1,0 +1,25 @@
+resources:
+  jobs:
+    job_sales_medallion:
+      name: job_sales_medallion
+      tasks:
+        - task_key: bronze
+          notebook_task:
+            notebook_path: ../src/notebooks/nb_sales_bronze.py
+            base_parameters:
+              catalog: ${var.catalog}
+          job_cluster_key: small
+        - task_key: silver
+          depends_on: [{ task_key: bronze }]
+          notebook_task:
+            notebook_path: ../src/notebooks/nb_sales_silver.py
+            base_parameters:
+              catalog: ${var.catalog}
+          job_cluster_key: small
+      job_clusters:
+        - job_cluster_key: small
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: Standard_D4ds_v5
+            num_workers: 2
+            data_security_mode: SINGLE_USER

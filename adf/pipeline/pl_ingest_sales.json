@@ -1,0 +1,19 @@
+{
+  "name": "pl_ingest_sales",
+  "properties": {
+    "activities": [
+      {
+        "name": "Run bronze notebook",
+        "type": "DatabricksNotebook",
+        "linkedServiceName": { "referenceName": "ls_databricks", "type": "LinkedServiceReference",
+                               "parameters": { "clusterId": "@pipeline().parameters.clusterId" } },
+        "typeProperties": {
+          "notebookPath": "/Workspace/Shared/shell-data/src/notebooks/nb_sales_bronze",
+          "baseParameters": { "catalog": { "value": "@pipeline().globalParameters.uc_catalog", "type": "Expression" } }
+        }
+      }
+    ],
+    "parameters": { "clusterId": { "type": "String" } },
+    "folder": { "name": "sales" }
+  }
+}

@@ -1,0 +1,185 @@
+# PR-BASED RELEASE: QA -> UAT -> PROD
+#
+# Queue manually with a comma-separated list of merged PRs, e.g. "1234,1240,1251".
+# The SAME artifact (built once from release/<id>) is promoted through every stage.
+#
+#   Cut ─► Build ─► QA (QA lead approval) ─► UAT (business approval) ─► CR gate ─► PROD ─► Tag & close
+#
+# Approvals live on the Azure DevOps *Environments* (Pipelines > Environments > Approvals and checks):
+#   shell-data-qa    : Approval = grp-shell-data-qa-leads
+#   shell-data-uat   : Approval = grp-shell-data-uat-signoff (business focals)
+#   shell-data-prod  : Approval = grp-shell-data-release-mgrs
+#                      + Invoke REST API / ServiceNow Change Management check (CR approved, in window)
+#                      + Business hours / exclusive lock
+trigger: none
+pr: none
+
+parameters:
+  - name: prList
+    displayName: "PRs to release (comma-separated, e.g. 1234,1240,1251)"
+    type: string
+  - name: releaseId
+    displayName: "Release id (blank = R<yyyy.MM.dd>.<run>)"
+    type: string
+    default: " "
+  - name: changeRequest
+    displayName: "ServiceNow CR (CHG#######) or 'auto' (lookup by Release-Id)"
+    type: string
+    default: auto
+  - name: strictDependencies
+    displayName: "Fail if a PR touches files changed by an earlier, unselected PR"
+    type: boolean
+    default: true
+
+variables:
+  - name: strictFlag
+    ${{ if parameters.strictDependencies }}:
+      value: --strict-deps
+    ${{ else }}:
+      value: ""
+  - name: releaseId
+    ${{ if eq(trim(parameters.releaseId), '') }}:
+      value: R$(Build.BuildNumber)
+    ${{ else }}:
+      value: ${{ parameters.releaseId }}
+
+name: $(Date:yyyy.MM.dd).$(Rev:r)
+pool: { vmImage: ubuntu-latest }
+
+stages:
+  # ---------------------------------------------------------------- CUT
+  - stage: Cut
+    displayName: Cut release from PR list
+    jobs:
+      - job: CherryPick
+        steps:
+          - checkout: self
+            fetchDepth: 0
+            persistCredentials: true
+          - script: |
+              git config user.email "release-bot@shell.com"
+              git config user.name  "Release Bot"
+              git fetch origin --tags
+            displayName: Prepare git
+          - script: >
+              python scripts/release/build_release.py build
+              --prs "${{ parameters.prList }}"
+              --release-id "$(releaseId)"
+              --provider ado
+              --ado-org "$(System.CollectionUri)" --ado-project "$(System.TeamProject)"
+              --ado-repo "$(Build.Repository.Name)"
+              --main-ref origin/main
+              $(strictFlag)
+              --push
+            name: cut
+            displayName: Gate + cherry-pick PRs (squash commits) onto release/$(releaseId)
+            env: { SYSTEM_ACCESSTOKEN: $(System.AccessToken) }
+          - publish: releases/$(releaseId)/manifest.json
+            artifact: manifest
+
+  # ---------------------------------------------------------------- BUILD (once)
+  - stage: Build
+    dependsOn: Cut
+    jobs:
+      - job: Package
+        steps:
+          - checkout: self
+            fetchDepth: 0
+          - script: git fetch origin "release/$(releaseId)" && git checkout -B "release/$(releaseId)" FETCH_HEAD
+            displayName: Checkout release/$(releaseId) (exactly what was cherry-picked)
+          - template: templates/build-artifacts.yml
+
+  # ---------------------------------------------------------------- QA
+  - stage: QA
+    dependsOn: Build
+    variables: [ { group: shell-data-qa } ]
+    jobs:
+      - deployment: DeployQA
+        environment: shell-data-qa
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: templates/deploy-env.yml
+                  parameters: { env: qa, serviceConnection: sc-shell-data-qa }
+                - template: templates/update-work-items.yml
+                  parameters: { state: "Ready for QA", tag: "In-QA-$(releaseId)" }
+
+  # ---------------------------------------------------------------- UAT
+  - stage: UAT
+    dependsOn: QA
+    variables: [ { group: shell-data-uat } ]
+    jobs:
+      - deployment: DeployUAT
+        environment: shell-data-uat           # approval = QA sign-off recorded before promotion
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: templates/deploy-env.yml
+                  parameters: { env: uat, serviceConnection: sc-shell-data-uat }
+                - template: templates/update-work-items.yml
+                  parameters: { state: "Ready for UAT", tag: "In-UAT-$(releaseId)" }
+
+  # ---------------------------------------------------------------- CR GATE
+  - stage: ChangeGate
+    displayName: ServiceNow CR gate
+    dependsOn: UAT
+    variables: [ { group: servicenow } ]
+    jobs:
+      - job: CheckCR
+        steps:
+          - download: current
+            artifact: manifest
+          - script: >
+              python scripts/servicenow/cr_gate.py check
+              --cr "${{ parameters.changeRequest }}"
+              --manifest $(Pipeline.Workspace)/manifest/manifest.json
+            name: cr
+            displayName: CR approved + in window + PR list matches manifest
+            env: { SNOW_PASSWORD: $(snowPassword) }
+
+  # ---------------------------------------------------------------- PROD
+  - stage: PROD
+    dependsOn: ChangeGate
+    variables:
+      - group: shell-data-prod
+      - group: servicenow
+      - name: changeRequest
+        value: $[ stageDependencies.ChangeGate.CheckCR.outputs['cr.changeRequest'] ]
+    jobs:
+      - deployment: DeployProd
+        environment: shell-data-prod
+        strategy:
+          runOnce:
+            preDeploy:
+              steps:
+                - download: current
+                  artifact: manifest
+                - script: python scripts/servicenow/cr_gate.py start --cr $(changeRequest) --manifest $(Pipeline.Workspace)/manifest/manifest.json
+                  displayName: CR -> Implement
+                  env: { SNOW_PASSWORD: $(snowPassword) }
+            deploy:
+              steps:
+                - template: templates/deploy-env.yml
+                  parameters: { env: prod, serviceConnection: sc-shell-data-prod }
+            on:
+              success:
+                steps:
+                  - checkout: self
+                    persistCredentials: true
+                  - script: |
+                      git fetch origin "release/$(releaseId)"
+                      git tag -a "prod/$(releaseId)" "origin/release/$(releaseId)" -m "PROD $(releaseId) CR $(changeRequest)"
+                      git push origin "prod/$(releaseId)"
+                    displayName: Tag prod baseline (next release cherry-picks on top of this)
+                  - script: python scripts/servicenow/cr_gate.py close --cr $(changeRequest) --result success --manifest $(Pipeline.Workspace)/manifest/manifest.json
+                    displayName: CR -> Review with evidence
+                    env: { SNOW_PASSWORD: $(snowPassword) }
+                  - template: templates/update-work-items.yml
+                    parameters: { state: "Closed", tag: "Released-$(releaseId)" }
+              failure:
+                steps:
+                  - script: python scripts/servicenow/cr_gate.py close --cr $(changeRequest) --result failed --manifest $(Pipeline.Workspace)/manifest/manifest.json
+                    displayName: Record failure on CR (rollback = redeploy previous prod/* tag)
+                    env: { SNOW_PASSWORD: $(snowPassword) }

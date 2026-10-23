@@ -1,0 +1,11 @@
+{
+  "name": "ds_landing_sales_csv",
+  "properties": {
+    "linkedServiceName": { "referenceName": "ls_adls_landing", "type": "LinkedServiceReference" },
+    "type": "DelimitedText",
+    "typeProperties": {
+      "location": { "type": "AzureBlobFSLocation", "fileSystem": "landing", "folderPath": "sales" },
+      "columnDelimiter": ",", "firstRowAsHeader": true
+    }
+  }
+}

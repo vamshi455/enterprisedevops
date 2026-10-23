@@ -1,0 +1,31 @@
+# GATE 2 — Every merge to main deploys to DEV (integration environment).
+# Main is the integration line, NOT the release unit. Releases are built from PR lists (release.yml).
+trigger:
+  branches: { include: [main] }
+  paths: { exclude: [docs/*, prototype/*, releases/*] }
+pr: none
+
+pool: { vmImage: ubuntu-latest }
+variables:
+  - name: releaseId
+    value: dev-$(Build.BuildId)
+
+stages:
+  - stage: Build
+    jobs:
+      - job: Package
+        steps:
+          - template: templates/build-artifacts.yml
+
+  - stage: Deploy_DEV
+    dependsOn: Build
+    variables: [ { group: shell-data-dev } ]
+    jobs:
+      - deployment: Dev
+        environment: shell-data-dev          # no approval
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: templates/deploy-env.yml
+                  parameters: { env: dev, serviceConnection: sc-shell-data-dev }

@@ -1,0 +1,64 @@
+# GATE 1 — Build validation on every PR into main.
+# Wired as a *Build Validation* branch policy on main (see scripts/ado/branch_policies.sh).
+# Together with the other main policies this enforces:
+#   - linked work item (story/bug) required ............ ADO policy "Check for linked work items"
+#   - tech lead approval (min 1 reviewer + required group) ADO policy
+#   - squash merge only (1 PR = 1 commit) ............... ADO policy "Limit merge types"
+#   - all comments resolved ............................. ADO policy
+#   - this pipeline green ............................... Build validation
+trigger: none
+pr: none   # Azure Repos uses branch policy, not this key
+
+pool: { vmImage: ubuntu-latest }
+
+variables:
+  - group: shell-data-dev      # DEV subscription id, RG, factory name, Databricks host (+ secrets from Key Vault)
+
+stages:
+  - stage: Validate
+    jobs:
+      - job: Standards
+        displayName: Standards & unit tests
+        steps:
+          - task: UsePythonVersion@0
+            inputs: { versionSpec: "3.11" }
+          - script: pip install pytest sqlfluff
+            displayName: Install tools
+          - script: python -m pytest -q tests
+            displayName: Release tooling tests
+          - script: |
+              set -e
+              # Naming standards: pipelines pl_*, datasets ds_*, linked services ls_*, triggers tr_*
+              bad=$(ls adf/pipeline | grep -v '^pl_' || true; ls adf/dataset | grep -v '^ds_' || true; \
+                    ls adf/linkedService | grep -v '^ls_' || true; ls adf/trigger | grep -v '^tr_' || true)
+              if [ -n "$bad" ]; then echo "##vso[task.logissue type=error]Naming standard violated: $bad"; exit 1; fi
+            displayName: ADF naming standards
+          - script: python scripts/sql/apply_migrations.py --env dev --dry-run
+            displayName: SQL migration naming/version check
+          - script: sqlfluff lint sql/ --dialect databricks --templater placeholder || true
+            displayName: SQL lint (advisory)
+
+      - job: ADF
+        displayName: ADF validate + export ARM
+        steps:
+          - task: NodeTool@0
+            inputs: { versionSpec: "20.x" }
+          - script: npm install
+            workingDirectory: adf
+          - script: >
+              npm run build validate $(Build.Repository.LocalPath)/adf
+              /subscriptions/$(subscriptionId)/resourceGroups/$(resourceGroup)/providers/Microsoft.DataFactory/factories/$(factoryName)
+            workingDirectory: adf
+            displayName: Validate factory resources
+
+      - job: Databricks
+        displayName: Databricks bundle validate
+        steps:
+          - script: curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+            displayName: Install Databricks CLI
+          - script: databricks bundle validate -t dev
+            workingDirectory: databricks
+            env:
+              ARM_TENANT_ID: $(tenantId)
+              ARM_CLIENT_ID: $(spClientId)
+              ARM_CLIENT_SECRET: $(spClientSecret)

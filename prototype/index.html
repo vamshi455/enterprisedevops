@@ -1,0 +1,501 @@
+<title>Release Gate Simulator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a horizontal "signal line" of environments and gates on top; the release console (PR picker, gate actions, pipeline log) beneath; reference diagrams last. */
+:root{
+  --bg:#f2f4f6; --surface:#ffffff; --sunk:#e8ecf0; --ink:#15202b; --muted:#5a6775; --line:#d6dde4;
+  --accent:#0e6b72; --accent-ink:#ffffff;
+  --ok:#2c7a4f; --ok-bg:#e2f2e8; --warn:#a86a12; --warn-bg:#fbf0dc; --bad:#b83232; --bad-bg:#f8e3e3;
+  --adf:#2563a8; --dbx:#b5541c; --uc:#6b45b8;
+  --log-bg:#18212b; --log-ink:#d5dee7; --log-dim:#7d8b99;
+  --f-display:"Familjen Grotesk", "Segoe UI", system-ui, sans-serif;
+  --f-body:"Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f151b; --surface:#16202a; --sunk:#1d2935; --ink:#e4ebf2; --muted:#93a2b1; --line:#2b3845;
+  --accent:#4cb2b9; --accent-ink:#06181a;
+  --ok:#5cc28a; --ok-bg:#183326; --warn:#e3a94a; --warn-bg:#352a15; --bad:#f07a7a; --bad-bg:#3a1c1e;
+  --adf:#6aa6ec; --dbx:#ee8a52; --uc:#a88bf0;
+  --log-bg:#0a0f14; --log-ink:#d5dee7; --log-dim:#6f7d8b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f151b; --surface:#16202a; --sunk:#1d2935; --ink:#e4ebf2; --muted:#93a2b1; --line:#2b3845;
+  --accent:#4cb2b9; --accent-ink:#06181a;
+  --ok:#5cc28a; --ok-bg:#183326; --warn:#e3a94a; --warn-bg:#352a15; --bad:#f07a7a; --bad-bg:#3a1c1e;
+  --adf:#6aa6ec; --dbx:#ee8a52; --uc:#a88bf0;
+  --log-bg:#0a0f14; --log-ink:#d5dee7; --log-dim:#6f7d8b; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 48px}
+.wrap{max-width:1240px;margin:0 auto;display:grid;gap:28px}
+.wrap>*{min-width:0}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(26px,3.4vw,36px);font-weight:700;letter-spacing:-.01em}
+h2{font-size:20px;font-weight:700}
+h3{font-size:15px;font-weight:700}
+.eyebrow{font-family:var(--f-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.lede{color:var(--muted);max-width:70ch;margin:6px 0 0}
+code,.mono{font-family:var(--f-mono);font-size:.88em}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+header.top{display:flex;flex-wrap:wrap;gap:16px;align-items:end;justify-content:space-between}
+.scen{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.scen span{font-size:13px;color:var(--muted);margin-right:4px}
+.chipbtn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer}
+.chipbtn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ---------- signal line ---------- */
+.track-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.track{display:grid;grid-template-columns:repeat(13,auto);align-items:stretch;min-width:1180px;padding:18px 16px 16px;gap:0}
+.station{min-width:118px;display:flex;flex-direction:column;gap:8px;padding:0 6px}
+.station .lbl{font-family:var(--f-display);font-weight:700;font-size:14px}
+.station .who{font-size:12px;color:var(--muted);margin-top:-6px}
+.station .bay{min-height:118px;border-radius:8px;background:var(--sunk);padding:8px;display:flex;flex-wrap:wrap;align-content:flex-start;gap:5px}
+.station.env .bay{border:1px dashed var(--line)}
+.station.active .bay{outline:2px solid var(--accent);outline-offset:-2px}
+.gate{width:62px;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:2px;position:relative}
+.gate::before{content:"";position:absolute;top:84px;left:0;right:0;height:2px;background:var(--line)}
+.gate .num{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.lamp{width:30px;height:30px;border-radius:50%;border:2px solid var(--line);background:var(--surface);position:relative;z-index:1;margin-top:46px;display:grid;place-items:center;font-size:13px;font-weight:700}
+.lamp.ok{background:var(--ok);border-color:var(--ok);color:var(--surface)}
+.lamp.wait{background:var(--warn-bg);border-color:var(--warn);color:var(--warn);animation:pulse 1.6s ease-in-out infinite}
+.lamp.bad{background:var(--bad);border-color:var(--bad);color:var(--surface)}
+.gate .gname{font-size:11px;text-align:center;color:var(--muted);line-height:1.2}
+@keyframes pulse{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--warn) 25%,transparent)}}
+
+.tok{font-family:var(--f-mono);font-size:11.5px;font-weight:600;padding:2px 7px;border-radius:5px;color:#fff;white-space:nowrap;display:inline-flex;gap:4px;align-items:center;border:1px solid transparent}
+.tok.ADF{background:var(--adf)} .tok.DBX{background:var(--dbx)} .tok.UC{background:var(--uc)}
+.tok.blocked{background:transparent;color:var(--bad);border-color:var(--bad);border-style:dashed}
+.tok.released{opacity:.55}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .tok:not(.blocked){color:#0b1117}}
+:root[data-theme="dark"] .tok:not(.blocked){color:#0b1117}
+
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--muted);padding:0 16px 14px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* ---------- console ---------- */
+.console{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:20px}
+@media (max-width:900px){.console{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:14px;align-content:start;min-width:0}
+.panel-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.panel-head .meta{font-size:12.5px;color:var(--muted)}
+
+table.prs{width:100%;border-collapse:collapse;font-size:13.5px}
+.tbl{overflow-x:auto}
+table.prs th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;font-weight:600;padding:6px 6px;border-bottom:1px solid var(--line)}
+table.prs td{padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+table.prs tr.dim td{color:var(--muted)}
+table.prs td.files{font-family:var(--f-mono);font-size:11px;color:var(--muted);word-break:break-all}
+.pill{font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)} .pill.warn{background:var(--warn-bg);color:var(--warn)} .pill.bad{background:var(--bad-bg);color:var(--bad)} .pill.n{background:var(--sunk);color:var(--muted)}
+
+.field{display:grid;gap:4px}
+.field label{font-size:12px;font-weight:600;color:var(--muted)}
+.field input[type=text],.field select{border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:7px 9px;width:100%}
+.field input.mono{font-family:var(--f-mono);font-size:13px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+.row>.field{flex:1 1 160px}
+.check{display:flex;gap:7px;align-items:center;font-size:13.5px}
+.btn{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent)}
+.btn.danger{border-color:var(--bad);background:transparent;color:var(--bad)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+.steps{display:grid;gap:10px}
+.step{border:1px solid var(--line);border-radius:8px;padding:12px;display:grid;gap:10px}
+.step.current{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.step.done{opacity:.72}
+.step-h{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.step-h h3 span{font-family:var(--f-mono);color:var(--muted);font-weight:400;margin-right:6px}
+.step p{margin:0;font-size:13.5px;color:var(--muted)}
+
+.log{background:var(--log-bg);color:var(--log-ink);border-radius:8px;font-family:var(--f-mono);font-size:12px;line-height:1.55;padding:12px 14px;height:300px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.log .t{color:var(--log-dim)} .log .ok{color:#6fd39b} .log .warn{color:#f0bd5e} .log .err{color:#ff8c8c} .log .h{color:#7fd3d8;font-weight:600}
+
+.manifest{font-family:var(--f-mono);font-size:11.5px;background:var(--sunk);border-radius:8px;padding:10px 12px;white-space:pre;overflow:auto;max-height:220px}
+
+/* ---------- reference ---------- */
+.ref{display:grid;gap:16px}
+.gates{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.gcard{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:6px;align-content:start}
+.gcard .n{font-family:var(--f-mono);font-size:11px;color:var(--accent);letter-spacing:.1em}
+.gcard p{margin:0;font-size:13.5px;color:var(--muted)}
+.gcard .by{font-size:12px;font-family:var(--f-mono);color:var(--ink)}
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;overflow-x:auto}
+pre.mermaid{margin:0;background:transparent}
+.rules{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin:0;padding:0;list-style:none}
+.rules li{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:14px}
+.rules b{font-family:var(--f-display)}
+@media (prefers-reduced-motion: reduce){.lamp.wait{animation:none}*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Shell data platform · ADF · Databricks · Unity Catalog</div>
+      <h1>Release Gate Simulator</h1>
+      <p class="lede">Pick merged PRs, cut a release, and walk it through QA, UAT and a ServiceNow change request to production. The release unit is a list of PRs, never single commits and never all of <code>main</code>.</p>
+    </div>
+    <div class="scen" role="group" aria-label="Scenarios">
+      <span>Try a scenario:</span>
+      <button class="chipbtn" data-scen="happy">Happy path</button>
+      <button class="chipbtn" data-scen="dep">Missing dependency</button>
+      <button class="chipbtn" data-scen="qafail">Story fails QA</button>
+      <button class="chipbtn" data-scen="cr">CR doesn't match</button>
+      <button class="chipbtn" data-scen="reset">Reset</button>
+    </div>
+  </header>
+
+  <section aria-label="Pipeline">
+    <div class="track-wrap"><div class="track" id="track"></div>
+      <div class="legend">
+        <span><i style="background:var(--adf)"></i>ADF</span>
+        <span><i style="background:var(--dbx)"></i>Databricks</span>
+        <span><i style="background:var(--uc)"></i>Unity Catalog SQL</span>
+        <span><i style="border:1px dashed var(--bad)"></i>PR blocked at Gate 1</span>
+        <span>Faded token = already in production</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="console">
+    <div class="panel">
+      <div class="panel-head"><h2>main: merged PRs</h2><span class="meta" id="baselineMeta"></span></div>
+      <div class="tbl"><table class="prs">
+        <thead><tr><th></th><th>PR</th><th>Change</th><th>Story</th><th>Status</th></tr></thead>
+        <tbody id="prRows"></tbody>
+      </table></div>
+      <div class="row">
+        <div class="field" style="flex:2 1 220px"><label for="prList">PRs to release (comma-separated)</label>
+          <input type="text" id="prList" class="mono" placeholder="1234,1236,1240" autocomplete="off"></div>
+        <div class="field" style="flex:1 1 140px"><label for="relId">Release id</label>
+          <input type="text" id="relId" class="mono"></div>
+      </div>
+      <div class="row" style="justify-content:space-between">
+        <label class="check"><input type="checkbox" id="strict" checked> Strict dependency check</label>
+        <button class="btn" id="cutBtn">Cut release</button>
+      </div>
+      <div>
+        <h3 style="margin-bottom:6px">Release manifest</h3>
+        <div class="manifest" id="manifest">No release cut yet.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Promotion</h2><span class="meta" id="relMeta">No active release</span></div>
+      <div class="steps" id="steps"></div>
+      <div>
+        <h3 style="margin-bottom:6px">Pipeline log</h3>
+        <div class="log" id="log" role="log" aria-live="polite"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ref">
+    <div><div class="eyebrow">Reference</div><h2>The six gates</h2></div>
+    <div class="gates">
+      <div class="gcard"><span class="n">GATE 1 · PR → MAIN</span><h3>Reviewed and traceable</h3><p>Linked story or bug, tech lead approval, PR validation build green, comments resolved, squash merge only.</p><span class="by">Azure Repos branch policies</span></div>
+      <div class="gcard"><span class="n">GATE 2 · RELEASE CUT</span><h3>Only the chosen PRs</h3><p>Each PR merged, linked, not yet in prod. Ordered by merge time, cherry-picked onto the last prod tag. Missing predecessors are named.</p><span class="by">build_release.py</span></div>
+      <div class="gcard"><span class="n">GATE 3 · QA</span><h3>QA lead accepts the drop</h3><p>Same artifact that will reach prod. A failed story is dropped by re-cutting without its PR.</p><span class="by">Environment shell-data-qa</span></div>
+      <div class="gcard"><span class="n">GATE 4 · UAT</span><h3>QA sign-off recorded</h3><p>Business users test in UAT; their sign-off is attached to the change request.</p><span class="by">Environment shell-data-uat</span></div>
+      <div class="gcard"><span class="n">GATE 5 · CHANGE REQUEST</span><h3>CR approved, PRs match</h3><p>Approved, Scheduled or Implement, inside the change window, and the CR's Release-PRs line equals the manifest.</p><span class="by">cr_gate.py · ServiceNow</span></div>
+      <div class="gcard"><span class="n">GATE 6 · PROD</span><h3>Release manager go</h3><p>Deploy UC SQL, then Databricks bundle, then ADF. Tag prod/&lt;id&gt;, close the CR, close the stories.</p><span class="by">Environment shell-data-prod</span></div>
+    </div>
+
+    <ul class="rules">
+      <li><b>One PR = one squash commit = one story.</b> That is what makes a PR safe to cherry-pick.</li>
+      <li><b>main feeds DEV only.</b> QA, UAT and PROD get <code>release/&lt;id&gt;</code>.</li>
+      <li><b>Build once, deploy many.</b> What QA tested is byte-for-byte what reaches production.</li>
+      <li><b>The prod baseline is a tag.</b> The next release starts from <code>prod/&lt;last&gt;</code>, so only your PRs move.</li>
+    </ul>
+
+    <div><h2>Flow</h2></div>
+    <div class="diagram"><pre class="mermaid">
+flowchart LR
+  FB["feature/AB#1234<br/>debug in ADF git mode"] -->|PR| G1{{"Gate 1<br/>story linked · tech lead<br/>build green · squash"}}
+  G1 --> MAIN[("main")] -->|auto| DEV["DEV"]
+  MAIN -.->|"PR list 1234,1240"| G2{{"Gate 2 · cut<br/>cherry-pick by PR"}}
+  G2 --> REL[("release/R2026.11.01<br/>manifest.json")] --> B["Build once"]
+  B --> G3{{"Gate 3<br/>QA lead"}} --> QA["QA"]
+  QA --> G4{{"Gate 4<br/>QA sign-off"}} --> UAT["UAT"]
+  UAT --> G5{{"Gate 5<br/>ServiceNow CR"}} --> G6{{"Gate 6<br/>release mgr"}} --> PROD["PROD"]
+  PROD --> TAG["tag prod/R2026.11.01"]
+  TAG -.->|next baseline| G2
+</pre></div>
+
+    <div><h2>Who does what</h2></div>
+    <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  actor Dev as Developer
+  actor TL as Tech lead
+  participant Main as main / DEV
+  actor RM as Release mgr
+  actor QA as QA team
+  actor Biz as Business
+  participant SN as ServiceNow
+  participant Prod as PROD
+  Dev->>TL: PR linked to story
+  TL-->>Main: approve + squash merge
+  RM->>RM: PR list → release/R (cherry-pick)
+  RM->>QA: deploy QA
+  QA-->>RM: sign-off or drop a PR
+  RM->>Biz: deploy UAT
+  Biz-->>SN: UAT sign-off on CR
+  SN-->>RM: CR approved, in window
+  RM->>Prod: deploy, tag prod/R
+  Prod-->>SN: evidence, CR to Review
+</pre></div>
+  </section>
+</div>
+
+<script>
+(() => {
+const SEED = [
+  {id:1231, title:"ls_sap_hana linked service", comp:"ADF", wi:5671, files:["adf/linkedService/ls_sap_hana.json"]},
+  {id:1234, title:"pl_ingest_sales pipeline + dataset", comp:"ADF", wi:5678, files:["adf/pipeline/pl_ingest_sales.json","adf/dataset/ds_landing_sales_csv.json"]},
+  {id:1236, title:"bronze.sales_raw table", comp:"UC", wi:5680, files:["sql/unity-catalog/migrations/V0002__create_sales_bronze.sql"]},
+  {id:1238, title:"Retail margin notebook (next sprint)", comp:"DBX", wi:5685, files:["databricks/src/notebooks/nb_margin.py"]},
+  {id:1240, title:"Silver sales notebook + job", comp:"DBX", wi:5690, files:["databricks/src/notebooks/nb_sales_silver.py","databricks/resources/jobs.yml"]},
+  {id:1245, title:"pl_ingest_sales: copy parallelism", comp:"ADF", wi:5695, files:["adf/pipeline/pl_ingest_sales.json"]},
+  {id:1251, title:"gold.vw_sales_daily view", comp:"UC", wi:5702, files:["sql/unity-catalog/migrations/R__vw_sales_daily.sql"]},
+];
+const OPEN = [{id:1253, title:"Trigger timezone fix", comp:"ADF", wi:null, reason:"no story"}];
+const RELEASE_DATES = ["R2026.11.01","R2026.11.08","R2026.11.15","R2026.11.22","R2026.11.29"];
+
+let S;
+function fresh(){
+  return {prs:SEED.map((p,i)=>({...p,pos:i,released:p.id===1231})), open:OPEN.map(o=>({...o})),
+    baseline:"prod/R2026.10.15", relIdx:0, rel:null, history:[]};
+}
+const $ = s => document.querySelector(s);
+const log = $("#log");
+function ts(){const d=new Date();return d.toTimeString().slice(0,8)}
+function L(msg, cls=""){ const line=document.createElement("div"); line.innerHTML=`<span class="t">${ts()}</span> ${cls?`<span class="${cls}">`:""}${msg}${cls?"</span>":""}`; log.appendChild(line); log.scrollTop=log.scrollHeight; }
+function clearLog(){ log.innerHTML=""; }
+
+/* ---------- gate 2 logic (mirrors scripts/release/build_release.py) ---------- */
+function cut(raw, relId, strict){
+  const ids = raw.split(/[,\s]+/).filter(Boolean).map(Number);
+  L(`##[section] Cut release ${relId} from PRs: ${raw}`, "h");
+  if(!ids.length) return fail(["PR list is empty"]);
+  const dup = ids.filter((x,i)=>ids.indexOf(x)!==i);
+  if(dup.length) return fail([`Duplicate PR ids: ${[...new Set(dup)]}`]);
+  L(`Baseline: ${S.baseline}`);
+  const errs=[], sel=[];
+  for(const id of ids){
+    const p = S.prs.find(x=>x.id===id), o = S.open.find(x=>x.id===id);
+    if(o){ errs.push(`PR ${id}: status is 'active', must be 'completed' (blocked at Gate 1: ${o.reason})`); continue; }
+    if(!p){ errs.push(`PR ${id}: not found as a completed merge on origin/main`); continue; }
+    if(!p.wi){ errs.push(`PR ${id}: no linked Azure DevOps work item`); continue; }
+    if(p.released){ errs.push(`PR ${id}: already in production baseline ${S.baseline}`); continue; }
+    L(`PR ${id}: completed · squash · AB#${p.wi} · not in prod`, "ok"); sel.push(p);
+  }
+  if(errs.length) return fail(errs);
+  sel.sort((a,b)=>a.pos-b.pos);
+  if(ids.join()!==sel.map(p=>p.id).join()) L(`Reordered by merge order on main: ${sel.map(p=>p.id).join(", ")}`);
+  const selIds = new Set(sel.map(p=>p.id));
+  const unrel = S.prs.filter(p=>!p.released && !selIds.has(p.id));
+  const warns=[];
+  for(const p of sel) for(const c of unrel) if(c.pos<p.pos){
+    const ov=p.files.filter(f=>c.files.includes(f)); if(ov.length) warns.push({p:p.id,c:c.id,ov});
+  }
+  for(const w of warns) L(`WARNING: PR ${w.p} shares ${w.ov.join(", ")} with earlier unselected PR ${w.c}`, "warn");
+  if(warns.length && strict) return fail([`Possible missing dependencies (strict mode): add PR ${[...new Set(warns.map(w=>w.c))].join(", ")} or defer PR ${[...new Set(warns.map(w=>w.p))].join(", ")}`]);
+  L(`git checkout -B release/${relId} ${S.baseline}`);
+  for(const p of sel){
+    const w = warns.find(w=>w.p===p.id);
+    if(w){ L(`git cherry-pick -x &lt;PR ${p.id}&gt;  → CONFLICT in ${w.ov.join(", ")}`, "err");
+      L(`git cherry-pick --abort`); return fail([`Cherry-pick conflict on PR ${p.id}. Likely missing predecessor PR(s): [${w.c}]`], 2); }
+    L(`git cherry-pick -x &lt;PR ${p.id} squash&gt;  ✓  ${p.title}`, "ok");
+  }
+  L(`Committed releases/${relId}/manifest.json · pushed release/${relId}`, "ok");
+  return {id:relId, prs:sel.map(p=>p.id), wis:sel.map(p=>p.wi), warns, stage:"built", cr:null, baseline:S.baseline};
+  function fail(list, code=1){ for(const e of list) L(`${code===2?"CONFLICT":"GATE FAILED"}: ${e}`, "err"); L(`##[error] Cut stage failed (exit ${code}). Nothing was deployed.`, "err"); return null; }
+}
+
+/* ---------- stage flow ---------- */
+const STAGES = [
+  {key:"built", g:3, title:"Deploy to QA", who:"QA lead approves environment shell-data-qa"},
+  {key:"qa",    g:4, title:"Promote to UAT", who:"QA team signs off every story in the manifest"},
+  {key:"uat",   g:5, title:"ServiceNow CR gate", who:"Change manager approves the CR; pipeline checks it"},
+  {key:"cr",    g:6, title:"Deploy to PROD", who:"Release manager approves environment shell-data-prod"},
+];
+const order = ["built","qa","uat","cr","prod"];
+
+function deploy(env){
+  L(`##[section] Deploy ${env.toUpperCase()} from artifact drop (built once)`, "h");
+  L(`[${env}] apply_migrations.py --env ${env}  → catalog ${env}_shell_data`, "ok");
+  L(`[${env}] databricks bundle deploy -t ${env}`, "ok");
+  L(`[${env}] ADF pre-deployment: stop triggers`, "ok");
+  L(`[${env}] ARM deployment adf-shell-data-${env} (arm-parameters/${env}.json)`, "ok");
+  L(`[${env}] ADF post-deployment: clean up, start triggers`, "ok");
+}
+
+function advance(action, extra){
+  const r=S.rel; if(!r) return;
+  if(action==="qa"){ L(`Approval: QA lead approved shell-data-qa`, "ok"); deploy("qa");
+    L(`Work items ${r.wis.map(w=>"AB#"+w).join(", ")} → Ready for QA`); r.stage="qa"; }
+  else if(action==="qareject"){ const pr=Number(extra);
+    L(`QA rejected PR ${pr} (AB#${S.prs.find(p=>p.id===pr).wi}). Release ${r.id} abandoned.`, "err");
+    const keep=r.prs.filter(x=>x!==pr);
+    L(`Re-cut without it: prList="${keep.join(",")}". Nothing reverted on main; PR ${pr} waits for a later release.`, "warn");
+    S.history.push({...r, stage:"abandoned"}); S.rel=null;
+    $("#prList").value=keep.join(","); S.relIdx++; $("#relId").value=RELEASE_DATES[S.relIdx%RELEASE_DATES.length]+(S.relIdx>=RELEASE_DATES.length?"b":"");
+  }
+  else if(action==="uat"){ L(`Approval: QA sign-off recorded on shell-data-uat`, "ok"); deploy("uat");
+    L(`Work items → Ready for UAT`); r.stage="uat"; }
+  else if(action==="cr"){
+    const f = readCR(); L(`##[section] cr_gate.py check --cr ${f.number}`, "h");
+    const fails=[];
+    if(f.approval!=="approved") fails.push(`approval is '${f.approval}', must be 'approved'`);
+    if(!["Scheduled","Implement"].includes(f.state)) fails.push(`state is '${f.state}', must be Scheduled or Implement`);
+    if(f.window!=="in") fails.push(`outside change window`);
+    const crP=f.prs.split(/[,\s]+/).filter(Boolean).map(Number).sort((a,b)=>a-b), mP=[...r.prs].sort((a,b)=>a-b);
+    if(crP.join()!==mP.join()) fails.push(`CR PR list [${crP}] != release manifest [${mP}]`);
+    if(fails.length){ fails.forEach(x=>L(`CR ${f.number}: ${x}`,"err")); L(`CR gate FAILED. PROD stays locked.`, "err"); r.crFail=true; }
+    else { L(`CR ${f.number}: approved · ${f.state} · in window · PRs match manifest`, "ok"); L(`CR gate PASSED`, "ok"); r.cr=f.number; r.crFail=false; r.stage="cr"; }
+  }
+  else if(action==="prod"){ L(`Approval: release manager approved shell-data-prod`, "ok");
+    L(`CR ${r.cr} → Implement`); deploy("prod");
+    L(`git tag -a prod/${r.id} release/${r.id} && git push origin prod/${r.id}`, "ok");
+    L(`CR ${r.cr} → Review (evidence: pipeline run, PRs ${r.prs.join(", ")})`, "ok");
+    L(`Work items ${r.wis.map(w=>"AB#"+w).join(", ")} → Closed, tagged Released-${r.id}`, "ok");
+    L(`Next release will cherry-pick on top of prod/${r.id}.`, "h");
+    r.prs.forEach(id=>S.prs.find(p=>p.id===id).released=true);
+    S.baseline=`prod/${r.id}`; r.stage="prod"; S.history.push({...r});
+    S.relIdx++; $("#relId").value=RELEASE_DATES[S.relIdx%RELEASE_DATES.length];
+    $("#prList").value="";
+  }
+  render();
+}
+
+function readCR(){ return {number:$("#crNum")?.value||"CHG0031245", approval:$("#crAppr")?.value, state:$("#crState")?.value, window:$("#crWin")?.value, prs:$("#crPrs")?.value||""}; }
+
+/* ---------- rendering ---------- */
+function token(p, extra=""){ return `<span class="tok ${p.comp} ${extra}" data-tok="${p.id}" title="${p.title}">${p.id}</span>`; }
+
+function render(){
+  const flip = snapshot();
+  const r=S.rel, live=r&&r.stage!=="prod", inRel=new Set(live?r.prs:[]);
+  const at = st => r && order.indexOf(r.stage)>=order.indexOf(st);
+  const where = id => { if(!r||!inRel.has(id)) return null; return r.stage; };
+  const bay = {
+    feature: S.open.map(o=>token(o,"blocked")).join(""),
+    dev: S.prs.filter(p=>!p.released && !inRel.has(p.id)).map(p=>token(p)).join(""),
+    rel: r && r.stage==="built" ? r.prs.map(id=>token(S.prs.find(p=>p.id===id))).join("") : "",
+    qa: r && r.stage==="qa" ? r.prs.map(id=>token(S.prs.find(p=>p.id===id))).join("") : "",
+    uat: r && (r.stage==="uat"||r.stage==="cr") ? r.prs.map(id=>token(S.prs.find(p=>p.id===id))).join("") : "",
+    prod: S.prs.filter(p=>p.released).map(p=>token(p,"released")).join(""),
+  };
+  const lamp = (g) => {
+    if(g===1) return S.open.length?"bad":"ok";
+    if(!r) return g===2?"":"";
+    const map={2:"built",3:"qa",4:"uat",5:"cr",6:"prod"};
+    if(at(map[g])) return "ok";
+    const prev={3:"built",4:"qa",5:"uat",6:"cr"}[g];
+    if(g===5 && r.crFail) return "bad";
+    if(prev && r.stage===prev) return "wait";
+    return "";
+  };
+  const act = k => r && ({rel:"built",qa:"qa",uat:"uat"}[k]===r.stage || (k==="uat"&&r.stage==="cr"));
+  const st = (k,lbl,who,cls="env") => `<div class="station ${cls} ${act(k)?"active":""}"><div class="lbl">${lbl}</div><div class="who">${who}</div><div class="bay" aria-label="${lbl}">${bay[k]||""}</div></div>`;
+  const gt = (g,name) => `<div class="gate"><span class="num">G${g}</span><span class="lamp ${lamp(g)}" aria-label="Gate ${g} ${lamp(g)||"idle"}">${{ok:"✓",bad:"✕",wait:"…"}[lamp(g)]||""}</span><span class="gname">${name}</span></div>`;
+  $("#track").innerHTML =
+    st("feature","Feature branch","Developers","") + gt(1,"PR policies") +
+    st("dev","main → DEV","Integration") + gt(2,"Cut by PR list") +
+    st("rel",r?`release/${r.id}`:"release/…","Built once","") + gt(3,"QA lead") +
+    st("qa","QA","QA team") + gt(4,"QA sign-off") +
+    st("uat","UAT","Business users") + gt(5,"ServiceNow CR") +
+    `<div class="station" style="min-width:20px;padding:0"></div>` + gt(6,"Release mgr") +
+    st("prod","PROD",S.baseline);
+
+  // PR table
+  const rows = S.prs.map(p=>{
+    const s = p.released?`<span class="pill n">in prod</span>`: inRel.has(p.id)?`<span class="pill warn">${r.id}</span>`:`<span class="pill ok">ready</span>`;
+    return `<tr class="${p.released?"dim":""}"><td><input type="checkbox" aria-label="Select PR ${p.id}" data-pick="${p.id}" ${p.released||live?"disabled":""} ${selected().includes(p.id)?"checked":""}></td>
+      <td>${token(p,p.released?"released":"").replace('data-tok','data-x')}</td><td>${p.title}<div class="files">${p.files.join("<br>")}</div></td><td class="mono">AB#${p.wi}</td><td>${s}</td></tr>`;
+  }).concat(S.open.map(o=>`<tr class="dim"><td><input type="checkbox" disabled aria-label="PR ${o.id} not merged"></td><td>${token(o,"blocked").replace('data-tok','data-x')}</td><td>${o.title}<div class="files">open PR · not merged</div></td><td class="mono">none</td><td><span class="pill bad">G1: ${o.reason}</span></td></tr>`));
+  $("#prRows").innerHTML = rows.join("");
+  $("#baselineMeta").textContent = `Prod baseline ${S.baseline}`;
+  $("#cutBtn").disabled = !!live;
+  $("#prList").disabled = !!live;
+
+  // manifest
+  $("#manifest").textContent = r ? JSON.stringify({release_id:r.id, branch:`release/${r.id}`, baseline:r.baseline, pr_ids:r.prs,
+    work_items:r.wis, dependency_warnings:r.warns.map(w=>({pr:w.p,depends_on_unselected_pr:w.c})), servicenow:{change_request:r.cr}, stage:r.stage}, null, 2)
+    : (S.history.length ? `Last: ${S.history.at(-1).id} (${S.history.at(-1).stage})` : "No release cut yet.");
+  $("#relMeta").textContent = r ? `release/${r.id} · ${r.prs.length} PRs${live?"":" · in production"}` : "No active release";
+
+  // steps
+  $("#steps").innerHTML = STAGES.map(sx=>{
+    const idx=order.indexOf(sx.key), cur = r && r.stage===sx.key, done = r && order.indexOf(r.stage)>idx;
+    let body="";
+    if(cur && sx.key==="built") body=`<div class="row"><button class="btn" data-act="qa">QA lead: approve</button></div>`;
+    if(cur && sx.key==="qa") body=`<div class="row"><button class="btn" data-act="uat">QA: sign off all</button>
+      <div class="field" style="flex:1 1 150px"><label for="rejPr">or reject one story</label><select id="rejPr">${r.prs.map(id=>`<option value="${id}">PR ${id} · AB#${S.prs.find(p=>p.id===id).wi}</option>`).join("")}</select></div>
+      <button class="btn danger" data-act="qareject">Reject</button></div>`;
+    if(cur && sx.key==="uat") body=`<div class="row">
+      <div class="field"><label for="crNum">CR number</label><input type="text" id="crNum" class="mono" value="CHG0031245"></div>
+      <div class="field"><label for="crAppr">Approval</label><select id="crAppr"><option>requested</option><option selected>approved</option><option>rejected</option></select></div>
+      <div class="field"><label for="crState">State</label><select id="crState"><option>Assess</option><option>Authorize</option><option selected>Scheduled</option><option>Implement</option></select></div>
+      <div class="field"><label for="crWin">Change window</label><select id="crWin"><option value="in" selected>Now is inside</option><option value="out">Now is outside</option></select></div></div>
+      <div class="field"><label for="crPrs">CR description: Release-PRs</label><input type="text" id="crPrs" class="mono" value="${r.prs.join(", ")}"></div>
+      <div class="row"><button class="btn" data-act="cr">Run CR gate</button></div>`;
+    if(cur && sx.key==="cr") body=`<div class="row"><button class="btn" data-act="prod">Release manager: approve PROD</button></div>`;
+    return `<div class="step ${cur?"current":""} ${done?"done":""}"><div class="step-h"><h3><span>G${sx.g}</span>${sx.title}</h3>${done?'<span class="pill ok">passed</span>':cur?'<span class="pill warn">waiting</span>':'<span class="pill n">locked</span>'}</div><p>${sx.who}</p>${body}</div>`;
+  }).join("");
+  play(flip);
+}
+
+/* FLIP: tokens glide between stations */
+function snapshot(){ const m={}; document.querySelectorAll("#track [data-tok]").forEach(e=>m[e.dataset.tok]=e.getBoundingClientRect()); return m; }
+function play(prev){
+  if(matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  document.querySelectorAll("#track [data-tok]").forEach(e=>{
+    const a=prev[e.dataset.tok]; if(!a) return; const b=e.getBoundingClientRect();
+    const dx=a.left-b.left, dy=a.top-b.top; if(!dx&&!dy) return;
+    e.animate([{transform:`translate(${dx}px,${dy}px)`},{transform:"none"}],{duration:650,easing:"cubic-bezier(.2,.7,.2,1)"});
+  });
+}
+
+function selected(){ return $("#prList").value.split(/[,\s]+/).filter(Boolean).map(Number); }
+
+/* ---------- events ---------- */
+document.addEventListener("change", e=>{
+  if(e.target.dataset.pick){ const id=Number(e.target.dataset.pick); let s=selected().filter(x=>x!==id); if(e.target.checked) s.push(id);
+    $("#prList").value=s.join(","); }
+});
+$("#prList").addEventListener("input", ()=>{ document.querySelectorAll("[data-pick]").forEach(c=>c.checked=selected().includes(Number(c.dataset.pick))); });
+$("#cutBtn").addEventListener("click", ()=>{
+  const r = cut($("#prList").value, $("#relId").value.trim()||"R-adhoc", $("#strict").checked);
+  if(r){ S.rel=r; L(`Build: ADF ARM export + bundle + SQL packaged once from release/${r.id}`, "ok"); }
+  render();
+});
+document.addEventListener("click", e=>{
+  const a=e.target.dataset.act; if(a) advance(a, a==="qareject"?$("#rejPr").value:null);
+  const sc=e.target.dataset.scen; if(sc) scenario(sc);
+});
+
+function scenario(k){
+  S=fresh(); clearLog(); $("#relId").value=RELEASE_DATES[0]; $("#strict").checked=true;
+  if(k==="reset"){ $("#prList").value=""; L("Reset. Prod baseline prod/R2026.10.15 contains PR 1231.","t"); render(); return; }
+  const lists={happy:"1251,1234,1236,1240", dep:"1236,1245", qafail:"1234,1236,1240", cr:"1234,1236"};
+  $("#prList").value=lists[k];
+  L({happy:"Scenario: four independent PRs, typed out of order. Press Cut release.",
+     dep:"Scenario: PR 1245 changes pl_ingest_sales, which PR 1234 created. 1234 isn't selected. Try strict on, then off.",
+     qafail:"Scenario: cut, approve QA, then reject PR 1240 to see the re-cut.",
+     cr:"Scenario: at the CR gate, the CR lists only PR 1234. Edit the Release-PRs field to 1234 before running the gate."}[k], "h");
+  render();
+}
+
+S=fresh(); $("#relId").value=RELEASE_DATES[0];
+L("Ready. Prod baseline prod/R2026.10.15 contains PR 1231. PR 1253 is stuck at Gate 1 (no linked story).","t");
+L("Pick PRs on the left or choose a scenario above.","t");
+render();
+})();
+</script>

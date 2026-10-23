@@ -1,0 +1,6 @@
+__pycache__/
+.pytest_cache/
+node_modules/
+adf/ArmTemplate/
+.databricks/
+.venv/

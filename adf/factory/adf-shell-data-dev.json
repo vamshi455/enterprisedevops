@@ -1,0 +1,11 @@
+{
+  "name": "adf-shell-data-dev",
+  "location": "eastus2",
+  "identity": { "type": "SystemAssigned" },
+  "properties": {
+    "globalParameters": {
+      "env": { "type": "String", "value": "dev" },
+      "uc_catalog": { "type": "String", "value": "dev_shell_data" }
+    }
+  }
+}
