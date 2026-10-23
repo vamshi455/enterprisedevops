@@ -48,6 +48,12 @@ header.top{display:flex;flex-wrap:wrap;gap:16px;align-items:end;justify-content:
 .scen span{font-size:13px;color:var(--muted);margin-right:4px}
 .chipbtn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer}
 .chipbtn:hover{border-color:var(--accent);color:var(--accent)}
+.chipbtn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.narr{display:flex;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--accent);border-radius:10px;padding:10px 14px}
+.narr .stepno{font-family:var(--f-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);white-space:nowrap}
+.narr p{margin:0;flex:1;min-width:0}
+.narr.bad{border-color:var(--bad)} .narr.bad .stepno{color:var(--bad)}
+.narr.ok{border-color:var(--ok)} .narr.ok .stepno{color:var(--ok)}
 
 /* ---------- signal line ---------- */
 .track-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
@@ -164,6 +170,8 @@ table.prs td.files{font-family:var(--f-mono);font-size:11px;color:var(--muted);w
       <button class="chipbtn" data-scen="reset">Reset</button>
     </div>
   </header>
+
+  <div class="narr" id="narr" role="status" aria-live="polite" hidden><span class="stepno" id="narrStep"></span><p id="narrText"></p><button class="btn ghost" id="narrStop">Stop</button></div>
 
   <section aria-label="Pipeline">
     <div class="track-wrap"><div class="track" id="track"></div>
@@ -495,17 +503,56 @@ document.addEventListener("click", e=>{
   const sc=e.target.dataset.scen; if(sc) scenario(sc);
 });
 
+/* ---------- scenarios: auto-play with narration ---------- */
+let timers=[];
+function stopScenario(){ timers.forEach(clearTimeout); timers=[]; document.querySelectorAll("[data-scen]").forEach(b=>b.setAttribute("aria-pressed","false")); }
+function narr(step, text, tone=""){ const n=$("#narr"); n.hidden=false; n.className="narr "+tone; $("#narrStep").textContent=step; $("#narrText").textContent=text; }
+function click(sel){ const el=$(sel); if(el && !el.disabled) el.click(); }
+const SCEN = {
+  happy:{list:"1251,1242,1234,1236,1240", steps:[
+    ["Five PRs typed out of order: ADF, Databricks, Unity Catalog and an Azure SQL config row.", null],
+    ["Gate 2: the cut checks each PR, re-orders them by merge order and cherry-picks only these five.", ()=>click("#cutBtn")],
+    ["Gate 3: QA lead approves. The same build deploys to QA, config DB first.", ()=>click('[data-act="qa"]')],
+    ["Gate 4: QA signs off. The build moves to UAT for business testing.", ()=>click('[data-act="uat"]')],
+    ["Gate 5: the ServiceNow CR is approved, in its window, and lists the same five PRs.", ()=>click('[data-act="cr"]')],
+    ["Gate 6: release manager approves. PROD deploys, is tagged as the new baseline, CR and stories close.", ()=>click('[data-act="prod"]'), "ok"],
+  ]},
+  dep:{list:"1236,1245", steps:[
+    ["PR 1245 tunes pipeline pl_ingest_sales, which PR 1234 created. 1234 is not in the list.", null],
+    ["Strict check on: the cut stops before touching git and names PR 1234 as the missing dependency.", ()=>click("#cutBtn"), "bad"],
+    ["Strict check off: the cherry-pick itself conflicts, aborts cleanly, and again names PR 1234.", ()=>{ $("#strict").checked=false; click("#cutBtn"); }, "bad"],
+    ["Fix: add 1234 to the list, or leave 1245 for a later release. Nothing broken reached QA.", ()=>{ $("#strict").checked=true; $("#prList").value="1234,1236,1245"; }, "ok"],
+  ]},
+  qafail:{list:"1234,1242,1240", steps:[
+    ["Three PRs go to QA together.", null],
+    ["Cut and build the release.", ()=>click("#cutBtn")],
+    ["QA lead approves; the build is in QA.", ()=>click('[data-act="qa"]')],
+    ["QA rejects PR 1240. The release is abandoned; nothing is reverted on main.", ()=>{ $("#rejPr").value="1240"; click('[data-act="qareject"]'); }, "bad"],
+    ["Re-cut with the remaining PRs 1234 and 1242. PR 1240 waits for a later release.", ()=>click("#cutBtn")],
+    ["The smaller release continues to QA.", ()=>click('[data-act="qa"]'), "ok"],
+  ]},
+  cr:{list:"1234,1236", steps:[
+    ["Release of PRs 1234 and 1236.", null],
+    ["Cut and build.", ()=>click("#cutBtn")],
+    ["QA approves.", ()=>click('[data-act="qa"]')],
+    ["UAT signs off.", ()=>click('[data-act="uat"]')],
+    ["The CR only lists PR 1234. The gate compares it with the release manifest.", ()=>{ $("#crPrs").value="1234"; }],
+    ["CR gate fails: CR [1234] ≠ release [1234, 1236]. PROD stays locked until the CR is corrected.", ()=>click('[data-act="cr"]'), "bad"],
+  ]},
+};
 function scenario(k){
+  stopScenario();
   S=fresh(); LAB.step=0; LAB.merged=false; clearLog(); $("#relId").value=RELEASE_DATES[0]; $("#strict").checked=true;
-  if(k==="reset"){ $("#prList").value=""; L("Reset. Prod baseline prod/R2026.10.15 contains PR 1231.","t"); render(); return; }
-  const lists={happy:"1251,1242,1234,1236,1240", dep:"1236,1245", qafail:"1234,1242,1240", cr:"1234,1236"};
-  $("#prList").value=lists[k];
-  L({happy:"Scenario: four independent PRs, typed out of order. Press Cut release.",
-     dep:"Scenario: PR 1245 changes pl_ingest_sales, which PR 1234 created. 1234 isn't selected. Try strict on, then off.",
-     qafail:"Scenario: cut, approve QA, then reject PR 1240 to see the re-cut.",
-     cr:"Scenario: at the CR gate, the CR lists only PR 1234. Edit the Release-PRs field to 1234 before running the gate."}[k], "h");
-  render();
+  if(k==="reset"){ $("#prList").value=""; $("#narr").hidden=true; L("Reset. Prod baseline prod/R2026.10.15 contains PR 1231.","t"); render(); return; }
+  document.querySelector(`[data-scen="${k}"]`).setAttribute("aria-pressed","true");
+  const sc=SCEN[k]; $("#prList").value=sc.list; render();
+  const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches, gap=reduce?900:2200;
+  sc.steps.forEach(([text,fn,tone],i)=>{
+    timers.push(setTimeout(()=>{ if(fn) fn(); narr(`STEP ${i+1} OF ${sc.steps.length}`, text, tone||""); if(i===sc.steps.length-1) timers.push(setTimeout(stopScenario,50)); }, i*gap));
+  });
+  $("#narr").scrollIntoView({block:"start",behavior:reduce?"auto":"smooth"});
 }
+$("#narrStop").addEventListener("click", ()=>{ stopScenario(); $("#narr").hidden=true; });
 
 S=fresh(); $("#relId").value=RELEASE_DATES[0];
 /* ---------- feature lab: Azure SQL config testing, today vs proposed ---------- */
