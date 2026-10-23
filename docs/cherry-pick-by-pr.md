@@ -22,23 +22,23 @@ means someone has to know *which* commits make up a feature, in *which* order, a
 4. Every later stage reads the manifest. The CR must list the same PRs.
 
 ```mermaid
+%%{init: {"gitGraph": {"rotateCommitLabel": false}} }%%
 gitGraph
-  commit id: "prod/R1" tag: "prod/R1"
-  branch main
-  commit id: "PR 1234 (squash)"
-  commit id: "PR 1238 (not ready)"
-  commit id: "PR 1240 (squash)"
-  commit id: "PR 1251 (squash)"
-  checkout main
+  commit id: "R1" tag: "prod/R1"
   branch "release/R2"
+  checkout main
+  commit id: "PR 1234"
+  commit id: "PR 1238 (wait)"
+  commit id: "PR 1240"
+  commit id: "PR 1251"
   checkout "release/R2"
-  cherry-pick id: "PR 1234 (squash)"
-  cherry-pick id: "PR 1240 (squash)"
-  cherry-pick id: "PR 1251 (squash)"
-  commit id: "manifest.json" tag: "prod/R2"
+  cherry-pick id: "PR 1234" tag: "PR 1234"
+  cherry-pick id: "PR 1240" tag: "PR 1240"
+  cherry-pick id: "PR 1251" tag: "PR 1251"
+  commit id: "manifest" tag: "prod/R2"
 ```
 
-(Here the release branch is drawn off `main` for the renderer; in practice it starts at `prod/R1`.)
+PR 1238 stays on main until a later release; it never reaches QA, UAT or PROD by accident.
 
 ## Provenance
 

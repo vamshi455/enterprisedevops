@@ -13,6 +13,28 @@ individual commits and never "all of main".
 | Full process & RACI | [`docs/process.md`](docs/process.md) |
 | Why PR-level cherry-pick | [`docs/cherry-pick-by-pr.md`](docs/cherry-pick-by-pr.md) |
 | ServiceNow integration | [`docs/servicenow.md`](docs/servicenow.md) |
+| Diagram images (PNG/SVG) | [`docs/diagrams/`](docs/diagrams) |
+
+## Release Gate Simulator
+
+![Release Gate Simulator](docs/diagrams/simulator.png)
+
+`prototype/index.html` is a single self-contained page: download it and open it in any browser
+(or enable GitHub Pages on this repo to host it). Pick PRs, cut a release, and walk it through
+QA → UAT → ServiceNow CR → PROD. Built-in scenarios: happy path, missing dependency,
+story fails QA, CR doesn't match.
+
+## Release flow
+
+![Release flow](docs/diagrams/release-flow.png)
+
+## Who does what
+
+![Swimlane](docs/diagrams/swimlane.png)
+
+## Cherry-pick by PR
+
+![Cherry-pick by PR](docs/diagrams/cherry-pick-by-pr.png)
 
 ---
 
