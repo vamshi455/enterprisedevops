@@ -1,0 +1,11 @@
+{
+  "name": "ls_sql_etlconfig",
+  "properties": {
+    "type": "AzureSqlDatabase",
+    "parameters": { "dbName": { "type": "String", "defaultValue": "sqldb-etlcfg-dev" } },
+    "typeProperties": {
+      "connectionString": "Integrated Security=False;Encrypt=True;Connection Timeout=30;Data Source=sqlsrv-shell-etl-dev.database.windows.net;Initial Catalog=@{linkedService().dbName}",
+      "authenticationType": "SystemAssignedManagedIdentity"
+    }
+  }
+}

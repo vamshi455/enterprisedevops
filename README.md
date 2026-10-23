@@ -1,4 +1,6 @@
-# Shell Data Platform — DevOps reference (ADF + Databricks + Unity Catalog)
+# Shell Data Platform — DevOps reference (ADF + Azure SQL config + Databricks + Unity Catalog)
+
+**▶ Live simulator: https://vamshi455.github.io/enterprisedevops/** · **[Proposal PDF](docs/Release-Process-Config-DB-Proposal.pdf)**
 
 A working scaffold for promoting **Azure Data Factory**, **Databricks** and **Unity Catalog SQL**
 through **DEV → QA → UAT → PROD**, where the unit of release is a **list of Pull Requests**, never
@@ -14,6 +16,7 @@ individual commits and never "all of main".
 | Why PR-level cherry-pick | [`docs/cherry-pick-by-pr.md`](docs/cherry-pick-by-pr.md) |
 | ServiceNow integration | [`docs/servicenow.md`](docs/servicenow.md) |
 | Diagram images (PNG/SVG) | [`docs/diagrams/`](docs/diagrams) |
+| Azure SQL config DB | [`sqlconfig/README.md`](sqlconfig/README.md) |
 
 ## Release Gate Simulator
 
@@ -23,6 +26,17 @@ individual commits and never "all of main".
 (or enable GitHub Pages on this repo to host it). Pick PRs, cut a release, and walk it through
 QA → UAT → ServiceNow CR → PROD. Built-in scenarios: happy path, missing dependency,
 story fails QA, CR doesn't match.
+
+## Azure SQL config DB: test on the feature branch
+
+Config scripts for the standalone Azure SQL ETL config DB used to reach a database only after merge to
+`main`, so ADF could only be tested after merging. Now each feature branch gets its own DB
+(`sqldb-etlcfg-ft-<story>` = copy of DEV + the branch's DACPAC and config rows) via
+`pipelines/feature-env.yml`, and ADF is debugged against it before the PR.
+
+| Today | Proposed |
+|---|---|
+| ![today](docs/diagrams/config-db-today.png) | ![proposed](docs/diagrams/config-db-proposed.png) |
 
 ## Release flow
 
@@ -104,6 +118,8 @@ scripts/
   servicenow/cr_gate.py       CR check / start / close
   sql/apply_migrations.py     UC migration runner with checksum history
   ado/branch_policies.sh      one-time policy setup on main
+sqlconfig/                Azure SQL config DB: SQL project (DACPAC) + one MERGE file per config key
+pipelines/feature-env.yml Gate 0: per-branch config DB + nightly cleanup
 tests/                    pytest: real git repo cherry-pick scenarios, CR gate, migrations
 prototype/index.html      interactive gate simulator for team walk-throughs
 ```

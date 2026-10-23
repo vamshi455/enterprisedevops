@@ -16,6 +16,9 @@ steps:
       "ArmTemplate"
     workingDirectory: ${{ parameters.root }}/adf
     displayName: Export ADF ARM template (automated publish — no manual 'Publish' button)
+  - task: DotNetCoreCLI@2
+    displayName: Build Azure SQL config DACPAC
+    inputs: { command: build, projects: "${{ parameters.root }}/sqlconfig/EtlConfig.sqlproj", arguments: "-c Release -o $(Build.ArtifactStagingDirectory)/drop/sqlconfig" }
   - task: CopyFiles@2
     inputs:
       SourceFolder: ${{ parameters.root }}

@@ -38,6 +38,20 @@ stages:
           - script: sqlfluff lint sql/ --dialect databricks --templater placeholder || true
             displayName: SQL lint (advisory)
 
+      - job: SqlConfig
+        displayName: Azure SQL config DACPAC build + feature-test evidence
+        steps:
+          - task: DotNetCoreCLI@2
+            inputs: { command: build, projects: sqlconfig/EtlConfig.sqlproj, arguments: "-c Release" }
+          - pwsh: |
+              # Gate 0 evidence: PR description must reference the ADF debug run done against the feature DB
+              $pr = Invoke-RestMethod -Headers @{Authorization="Bearer $env:TOKEN"} `
+                "$(System.CollectionUri)$(System.TeamProject)/_apis/git/repositories/$(Build.Repository.ID)/pullrequests/$(System.PullRequest.PullRequestId)?api-version=7.1"
+              if ($pr.description -notmatch 'Feature-Test-Run:\s*\S+') {
+                Write-Host "##vso[task.logissue type=error]Add 'Feature-Test-Run: <ADF debug run id>' (tested against sqldb-etlcfg-ft-<wi>) to the PR description"; exit 1 }
+            displayName: Feature test evidence present
+            env: { TOKEN: $(System.AccessToken) }
+
       - job: ADF
         displayName: ADF validate + export ARM
         steps:

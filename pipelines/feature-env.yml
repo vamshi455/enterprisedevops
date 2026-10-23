@@ -1,0 +1,82 @@
+# GATE 0 — Feature test environment for the Azure SQL config DB.
+# Runs on every push to feature/*: gives the branch its own config DB so ADF can be tested
+# end-to-end BEFORE the PR (instead of only after merge to main).
+#   sqldb-etlcfg-ft-<workitem> = COPY OF DEV config DB (= main) + this branch's DACPAC and config data
+trigger:
+  branches: { include: [feature/*, bugfix/*] }
+  paths: { include: [sqlconfig/*] }
+pr: none
+
+schedules:
+  - cron: "0 6 * * *"          # nightly cleanup (UTC)
+    displayName: Drop stale feature DBs
+    branches: { include: [main] }
+    always: true
+
+pool: { vmImage: windows-latest }
+variables:
+  - group: shell-data-dev
+  - name: server
+    value: sqlsrv-shell-etl-dev
+  - name: pool
+    value: pool-etlcfg-feature
+
+stages:
+  - stage: Provision
+    condition: ne(variables['Build.Reason'], 'Schedule')
+    jobs:
+      - job: FeatureDb
+        steps:
+          - pwsh: |
+              # feature/AB#5710-sap-sales  ->  5710
+              $wi = [regex]::Match("$(Build.SourceBranchName)$(Build.SourceBranch)", 'AB#?(\d+)').Groups[1].Value
+              if (-not $wi) { throw "Branch must be named feature/AB#<workitem>-..." }
+              Write-Host "##vso[task.setvariable variable=featureDb]sqldb-etlcfg-ft-$wi"
+            displayName: Derive feature DB name
+          - task: AzureCLI@2
+            displayName: Create or refresh $(featureDb) as copy of DEV
+            inputs:
+              azureSubscription: sc-shell-data-dev
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: |
+                $exists = az sql db show -g $(resourceGroup) -s $(server) -n $(featureDb) --query name -o tsv 2>$null
+                if ($exists) { az sql db delete -g $(resourceGroup) -s $(server) -n $(featureDb) --yes }
+                az sql db copy -g $(resourceGroup) -s $(server) -n sqldb-etlcfg-dev `
+                  --dest-name $(featureDb) --elastic-pool $(pool) `
+                  --tags branch="$(Build.SourceBranch)" createdBy="$(Build.RequestedForEmail)"
+          - task: DotNetCoreCLI@2
+            displayName: Build DACPAC from this branch
+            inputs: { command: build, projects: sqlconfig/EtlConfig.sqlproj, arguments: "-c Release" }
+          - task: SqlAzureDacpacDeployment@1
+            displayName: Deploy branch schema + config data to $(featureDb)
+            inputs:
+              azureSubscription: sc-shell-data-dev
+              AuthenticationType: servicePrincipal
+              ServerName: $(server).database.windows.net
+              DatabaseName: $(featureDb)
+              DacpacFile: sqlconfig/bin/Release/EtlConfig.dacpac
+              AdditionalArguments: /v:Env=dev /v:LandingAccount=stshelldatadev /v:UcCatalog=dev_shell_data /p:BlockOnPossibleDataLoss=true
+          - pwsh: |
+              Write-Host "##vso[task.logissue type=warning]Debug ADF in Git mode with pipeline parameter configDb = $(featureDb)"
+            displayName: How to test
+
+  - stage: Cleanup
+    condition: eq(variables['Build.Reason'], 'Schedule')
+    jobs:
+      - job: DropStale
+        steps:
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: sc-shell-data-dev
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: |
+                $branches = git ls-remote --heads origin | ForEach-Object { ($_ -split "`t")[1] }
+                $dbs = az sql db list -g $(resourceGroup) -s $(server) --query "[?starts_with(name,'sqldb-etlcfg-ft-')].{n:name,b:tags.branch,c:creationDate}" | ConvertFrom-Json
+                foreach ($d in $dbs) {
+                  $old = ([datetime]$d.c) -lt (Get-Date).AddDays(-14)
+                  if ($old -or ($branches -notcontains $d.b)) {
+                    Write-Host "Dropping $($d.n) (branch $($d.b))"; az sql db delete -g $(resourceGroup) -s $(server) -n $d.n --yes
+                  }
+                }

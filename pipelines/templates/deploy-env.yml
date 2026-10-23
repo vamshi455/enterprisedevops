@@ -1,5 +1,5 @@
-# Deploy one environment from the immutable 'drop' artifact: UC SQL -> Databricks -> ADF.
-# Order matters: tables/views first, then jobs/notebooks that use them, then ADF which calls the jobs.
+# Deploy one environment from the immutable 'drop' artifact: Azure SQL config -> UC SQL -> Databricks -> ADF.
+# Order matters: config rows + tables first, then jobs/notebooks that use them, then ADF which reads config and calls the jobs.
 parameters:
   - name: env
     type: string
@@ -9,6 +9,17 @@ parameters:
 steps:
   - download: current
     artifact: drop
+
+  # 0) Azure SQL ETL config DB: schema (DACPAC) + idempotent config data, env values via SQLCMD vars
+  - task: SqlAzureDacpacDeployment@1
+    displayName: "[${{ parameters.env }}] Azure SQL config DB (sqldb-etlcfg-${{ parameters.env }})"
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      AuthenticationType: servicePrincipal
+      ServerName: $(sqlServer).database.windows.net
+      DatabaseName: sqldb-etlcfg-${{ parameters.env }}
+      DacpacFile: $(Pipeline.Workspace)/drop/sqlconfig/EtlConfig.dacpac
+      AdditionalArguments: /v:Env=${{ parameters.env }} /v:LandingAccount=$(landingAccount) /v:UcCatalog=${{ parameters.env }}_shell_data /p:BlockOnPossibleDataLoss=true
 
   # 1) Unity Catalog DDL (versioned, idempotent)
   - task: UsePythonVersion@0

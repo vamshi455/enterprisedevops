@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.Build.Sql/0.2.0-preview">
+  <!-- SDK-style SQL project: `dotnet build` -> bin/Release/EtlConfig.dacpac (schema only).
+       Config DATA is applied by Scripts/Script.PostDeployment.sql, which :r-includes one file per source/pipeline. -->
+  <PropertyGroup>
+    <Name>EtlConfig</Name>
+    <DSP>Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider</DSP>
+    <ModelCollation>1033, CI</ModelCollation>
+  </PropertyGroup>
+  <ItemGroup>
+    <SqlCmdVariable Include="Env"><DefaultValue>dev</DefaultValue></SqlCmdVariable>
+    <SqlCmdVariable Include="LandingAccount"><DefaultValue>stshelldatadev</DefaultValue></SqlCmdVariable>
+    <SqlCmdVariable Include="UcCatalog"><DefaultValue>dev_shell_data</DefaultValue></SqlCmdVariable>
+  </ItemGroup>
+  <ItemGroup>
+    <PostDeploy Include="Scripts\Script.PostDeployment.sql" />
+    <None Include="Data\**\*.sql" />
+  </ItemGroup>
+</Project>
