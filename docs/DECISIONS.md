@@ -22,8 +22,18 @@ Decision log for the Shell data platform CI/CD process. The full context is in [
 | D-14 | Deploy order: Azure SQL config → Unity Catalog → Databricks → ADF | Dependencies first |
 | D-15 | Environment settings in Git (`settings/<env>.json`) fed to ADF, bundle and SQL; secrets in Key Vault; Azure App Configuration rejected | Only reviewed, released changes; no hand edits to PROD (§5.13) |
 | D-16 | Known caveats accepted: overlapping PRs, main drifting from PROD, ADF debug not testing triggers or volume | Managed by team habits and QA (§5.15) |
+| D-17 | **No approval gate for QA**: the release deploys to QA automatically after the cut. Gates renumbered 0–5 | QA environment is for testing; approvals start at UAT |
+| D-18 | Gate 1 checks fixed as the 10 items in §5.3, including ADF API verification that the feature-test run succeeded | Explicit, enforceable definition of a reviewable PR |
+| D-19 | GitHub org is on **GitHub Enterprise** (OQ-07 answered) | Environment approvals available for UAT and PROD |
 
 ## Notes on recent decisions
+
+- **D-17 No QA approval gate (24 Oct 2026).** A release deploys to QA automatically right after the cut. Gates are now
+  0 Feature test · 1 PR → main · 2 Release cut · 3 UAT (QA sign-off) · 4 ServiceNow CR · 5 PROD. Because QA has no gate,
+  a new cut replaces whatever is in QA, so coordinate cuts with the QA team.
+- **D-18 Gate 1 checks (24 Oct 2026).** Ten required checks (HANDOFF §5.3), including ADF API verification that the
+  `Feature-Test-Run` debug run succeeded, a secrets/hardcoded-values scan, and `Release-Note`, `Depends-On` and `Rollback` lines.
+- **D-19 GitHub Enterprise confirmed (24 Oct 2026).** UAT and PROD environment approvals are available.
 
 - **D-15 Environment settings in Git (24 Oct 2026).** Source server names and other environment-specific values differ per
   environment (QA reads the test source, UAT the UAT source) and appear in ADF, the config DB rows and Databricks. One

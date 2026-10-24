@@ -1,6 +1,6 @@
 # Shell Data Platform CI/CD: Handoff for the Local Coding Agent
 
-Version 1.1 · 24 Oct 2026 · Owner: Vamshi Singam (lead)
+Version 1.2 · 24 Oct 2026 · Owner: Vamshi Singam (lead)
 
 This file is **self-contained**. It holds the full context, target architecture, specifications, conventions,
 access requirements and reference code. No other repository or document is needed.
@@ -175,8 +175,8 @@ flowchart LR
   G1 -->|squash merge| MAIN[("main")] -->|auto| DEV["DEV"]
   MAIN -.->|"PR list 1234,1240"| G2{{"Gate 2 · cut<br/>cherry-pick by PR"}}
   G2 --> REL[("release/R2026.11.01<br/>manifest.json")] --> B["Build once"]
-  B --> G3{{"Gate 3 · QA lead"}} --> QA["QA"] --> G4{{"Gate 4 · QA sign-off"}} --> UAT["UAT"]
-  UAT --> G5{{"Gate 5 · ServiceNow CR"}} --> G6{{"Gate 6 · release mgr"}} --> PROD["PROD"]
+  B -->|"auto, no approval"| QA["QA"] --> G3{{"Gate 3 · QA sign-off"}} --> UAT["UAT"]
+  UAT --> G4{{"Gate 4 · ServiceNow CR"}} --> G5{{"Gate 5 · release mgr"}} --> PROD["PROD"]
   PROD --> TAG["tag prod/R2026.11.01"] -.->|next baseline| G2
 ```
 
@@ -221,14 +221,34 @@ shell-data-platform/
 
 | Gate | When | Checks | Enforced by |
 |---|---|---|---|
-| 0 Feature test | Before PR | Branch tested end-to-end: ADF debug against the branch's own config DB and the developer's bundle | `feature-env` workflow + PR evidence |
-| 1 PR → main | Every PR | `AB#<id>` in title/body; CODEOWNERS (tech lead) approval; checks green (ADF validate, bundle validate, DACPAC build, tests); `Feature-Test-Run: <ADF run id>` in body; conversations resolved; **squash merge only**; no force-push | Ruleset on `main` + `pr-validation` |
+| 0 Feature test | Before PR | Branch tested end-to-end: ADF debug against the branch's own config DB and the developer's bundle. Evidence = the ADF debug **run ID** in the PR | `feature-env` workflow + PR check |
+| 1 PR → main | Every PR | See "Gate 1 checks" below | Ruleset on `main` + `pr-validation` |
 | — | Merge to main | Deploys DEV (integration check, not the first test) | `deploy-dev` |
 | 2 Release cut | Manual | Listed PRs merged, squash, linked, not in prod; ordered by merge; cherry-picked onto last `prod/*` tag; dependency/conflict check | `release` → `build_release.py` |
-| 3 QA | After cut | QA lead approves the `qa` environment | GitHub Environment |
-| 4 UAT | After QA | QA sign-off; `uat` environment approval | GitHub Environment |
-| 5 Change | Before PROD | CR approved, Scheduled/Implement, inside window, CR PR list == manifest | `cr_gate.py check` |
-| 6 PROD | After CR | Release manager approves `prod` environment | GitHub Environment |
+| — | After cut | **Deploys to QA automatically, no approval** (decision D-17) | `release` → `deploy-env` |
+| 3 UAT | After QA | QA sign-off; `uat` environment approval (QA lead/team) | GitHub Environment |
+| 4 Change | Before PROD | CR approved, Scheduled/Implement, inside window, CR PR list == manifest | `cr_gate.py check` |
+| 5 PROD | After CR | Release manager approves `prod` environment | GitHub Environment |
+
+**Where the Gate 0 run ID comes from.** When the developer clicks **Debug** in ADF Studio (Git mode, on their branch), the run
+appears in the Output tab with its run ID. It is also under **Monitor → Pipeline runs → Debug**. The developer copies it into the PR
+as `Feature-Test-Run: <run id>`. The `pr-validation` check calls the ADF API for that run ID in the DEV factory and fails unless the
+run exists, **succeeded**, and is recent (debug runs are kept only for a limited time). The tech lead can open the run in Monitor.
+
+**Gate 1 checks (all required on every PR to `main`)**
+1. **Description** follows the PR template: what changed, why, how it was tested, per project type touched (ADF / Databricks / SQL config).
+2. **Linked story**: `AB#<id>` from Azure Boards, one story per PR.
+3. **Feature test proof**: `Feature-Test-Run: <run id>`, verified by the pipeline as a successful ADF run (above).
+4. **Reviewer**: tech lead from CODEOWNERS approves; the author cannot approve their own PR; new pushes after approval reset it.
+5. **Automated checks pass**: ADF validate, `databricks bundle validate`, SQL project (DACPAC) build, unit tests, settings files have identical keys (§5.13).
+6. **No secrets and no hardcoded environment values** (server names, storage accounts, URLs) in code: a scan blocks the PR.
+7. **Release notes line** in the description (`Release-Note: …`); it feeds the release manifest and the ServiceNow CR.
+8. **Dependencies called out**: `Depends-On: #<pr>` when this PR needs another PR released first (or `Depends-On: none`).
+9. **Rollback note** for any config or schema change (`Rollback: …`).
+10. Branch **up to date with main**, all conversations resolved, then **squash merge only**; no force-push.
+
+**Gate 2 proposals (not yet confirmed; ask before implementing):** check that every listed PR has a recorded feature test, and
+restrict who can start the cut to the release managers (e.g. required reviewers on the `release-cut` environment).
 
 Branch names: `feature/AB#<id>-<desc>`, `bugfix/AB#<id>-<desc>`, `hotfix/AB#<id>-<desc>` (branched from the latest `prod/*` tag,
 PR into main, then released alone with an emergency CR). `release/<id>` and `prod/<id>` are created only by the release-bot app.
@@ -293,7 +313,7 @@ record the choice in `DECISIONS.md`. Examples are in Appendix D.
 
 | Workflow | Trigger | Environment | Identity | Steps |
 |---|---|---|---|---|
-| `pr-validation` | `pull_request` → main | none | CI identity (federated subject `…:pull_request`) | story-link (AB#) · feature-test-evidence · adf-validate (`npm run build validate`) · bundle-validate · sql-build (DACPAC) · unit-tests · aggregate job `pr-validation` = required check. Path filters per folder. Permissions `id-token: write`, `contents: read`. |
+| `pr-validation` | `pull_request` → main | none | CI identity (federated subject `…:pull_request`) | pr-template fields (Release-Note, Depends-On, Rollback) · story-link (AB#) · feature-test-evidence (ADF API: run succeeded) · secrets/hardcoded-values scan · settings-keys-match · adf-validate (`npm run build validate`) · bundle-validate · sql-build (DACPAC) · unit-tests · aggregate job `pr-validation` = required check. Path filters per folder. Permissions `id-token: write`, `contents: read`. |
 | `feature-env` | push `feature/**`, `bugfix/**` (sqlconfig changes) + dispatch | `dev-feature` | DEV deploy identity | §5.4 |
 | `feature-cleanup` | `pull_request: closed` + nightly | `dev-feature` | DEV deploy identity | §5.4 |
 | `deploy-dev` | push main (ignore docs/**) | `dev` | DEV deploy identity | calls `deploy-env` with `env: dev` |
@@ -301,7 +321,7 @@ record the choice in `DECISIONS.md`. Examples are in Appendix D.
 | `release` | `workflow_dispatch`: `pr_list` (required), `release_id` (default `R<yyyy.MM.dd>`), `change_request` (default `auto`), `strict_dependencies` (default true) | `release-cut`, `qa`, `uat`, `prod` | per env + release-bot | jobs: `cut` → `build` → `deploy-qa` → `deploy-uat` → `change-gate` → `deploy-prod`; job summary shows the PR table at each stage; stories moved per stage |
 
 GitHub Environments: `dev-feature` (branches `feature/**`, `bugfix/**`), `dev` (main), `release-cut` (main),
-`qa`, `uat`, `prod` (branches `release/*`; required reviewers: qa-leads, uat-signoff, release-managers).
+`qa`, `uat`, `prod` (branches `release/*`). Required reviewers: **none on `qa`** (QA deploys automatically after the cut), `uat` = QA sign-off group, `prod` = release managers.
 
 ### 5.7 Release mechanism (cherry-pick by PR)
 
@@ -395,8 +415,8 @@ Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release
 | GH-06 | GitHub App 'shell-data-release-bot' | — | Create app (Contents: read & write, Pull requests: read, Metadata: read), install on the repo only; give its App ID and private key to the lead for the 'release-cut' environment secret | Cuts release/<id> branches and pushes prod/<id> tags past the ruleset in GH-05 | P2 |
 | GH-07 | GitHub Actions policy | — | Enable Actions on the repo; allow actions: actions/*, azure/login, databricks/setup-cli, Azure/arm-deploy, Azure/sql-action (or allow 'verified creators') | Workflows for validation, feature environments and releases | P1 |
 | GH-08 | Workflow permissions / OIDC | — | Default GITHUB_TOKEN = read; workflows may request id-token: write (OIDC). Confirm no org policy blocks OIDC | Passwordless sign-in to Azure with the existing managed identities | P1 |
-| GH-09 | GitHub Environments | DEV, QA, UAT, PROD | Create environments: dev-feature, dev, release-cut, qa, uat, prod. Required reviewers: qa = qa-leads, uat = uat-signoff, prod = release-managers. Deployment branches: dev-feature = feature/**, bugfix/**; dev = main; release-cut = main; qa/uat/prod = release/* _(Note: Required reviewers on a private/internal repo need GitHub Enterprise (confirm plan, see OQ-07))_ | Gates 3, 4 and 6 are environment approvals | P1 |
-| GH-10 | Environment secrets | UAT, PROD | Store ServiceNow integration credentials as secrets in the 'prod' environment only (and 'uat' if the CR is checked before UAT) | Gate 5 reads and updates the change request | P3 |
+| GH-09 | GitHub Environments | DEV, QA, UAT, PROD | Create environments: dev-feature, dev, release-cut, qa, uat, prod. Required reviewers: none on qa (auto-deploy after the cut), uat = QA sign-off group, prod = release-managers. Deployment branches: dev-feature = feature/**, bugfix/**; dev = main; release-cut = main; qa/uat/prod = release/* _(Note: Org is on GitHub Enterprise (confirmed))_ | UAT (Gate 3) and PROD (Gate 5) are environment approvals; QA deploys without approval | P1 |
+| GH-10 | Environment secrets | UAT, PROD | Store ServiceNow integration credentials as secrets in the 'prod' environment only (and 'uat' if the CR is checked before UAT) | Gate 4 reads and updates the change request | P3 |
 | GH-11 | Third-party app access | DEV | Approve the 'Azure Data Factory' and 'Databricks' GitHub apps / OAuth apps for the org (if OAuth app access restrictions are on) _(Note: Blocking for feature testing)_ | DEV factory Git mode and Databricks Git folders must read feature branches: this is what makes feature-branch testing possible | P1 |
 | GH-12 | GitHub Actions runners | DEV, QA, UAT, PROD | GitHub-hosted runners if Azure endpoints are public. If ADF/SQL/Databricks are private: self-hosted runners in a VNet with line of sight (or GitHub-hosted runners with Azure private networking), registered to this repo _(Note: Depends on OQ-03)_ | Runners must reach SQL (DACPAC), Databricks and ARM endpoints | P1 |
 
@@ -463,7 +483,7 @@ Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release
 
 | ID | Principal / target | Env | Permission / action | Why | Phase |
 |---|---|---|---|---|---|
-| SN-01 | Integration account / OAuth client | PROD | Integration user (or OAuth client credentials) able to read change_request and update state and work_notes for this team's assignment group | Gate 5: CR approved + in window + PR list matches; evidence written back after deploy | P3 |
+| SN-01 | Integration account / OAuth client | PROD | Integration user (or OAuth client credentials) able to read change_request and update state and work_notes for this team's assignment group | Gate 4: CR approved + in window + PR list matches; evidence written back after deploy | P3 |
 | SN-02 | Change template | PROD | Add a field (e.g. u_release_prs) or agree the description lines 'Release-Id:' and 'Release-PRs:' on the CR template; confirm change model (Normal/Standard) | Ties each CR to the exact PRs being deployed | P3 |
 
 **Network / cloud platform team**
@@ -517,12 +537,16 @@ Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release
 | D-14 | Deploy order: Azure SQL config → Unity Catalog → Databricks → ADF | Dependencies first |
 | D-15 | Environment settings in Git (`settings/<env>.json`) fed to ADF, bundle and SQL; secrets in Key Vault; Azure App Configuration rejected | Only reviewed, released changes; no hand edits to PROD (§5.13) |
 | D-16 | Known caveats accepted: overlapping PRs, main drifting from PROD, ADF debug not testing triggers or volume | Managed by team habits and QA (§5.15) |
+| D-17 | **No approval gate for QA**: the release deploys to QA automatically after the cut. Gates renumbered 0–5 | QA environment is for testing; approvals start at UAT |
+| D-18 | Gate 1 checks fixed as the 10 items in §5.3, including ADF API verification that the feature-test run succeeded | Explicit, enforceable definition of a reviewable PR |
+| D-19 | GitHub org is on **GitHub Enterprise** (OQ-07 answered) | Environment approvals available for UAT and PROD |
 
 ### 5.15 Things that are easy to get wrong
 
 - Federated credentials are **not supported on system-assigned managed identities**. If the identities the team wants to reuse
   are system-assigned (e.g. a factory's own identity), new user-assigned identities are needed (max 20 federated credentials each).
-- GitHub Environment **required reviewers on private/internal repos need GitHub Enterprise**. Without it, Gates 3, 4 and 6 have no approval step.
+- GitHub Environment required reviewers on private/internal repos need GitHub Enterprise. **Confirmed: the org is on GitHub Enterprise**, so the UAT and PROD approvals work.
+- **QA has no approval gate.** Every release cut deploys to QA immediately, replacing whatever is there. Coordinate cuts with the QA team so a release under test is not overwritten.
 - If SQL/Databricks/ADF use private endpoints, GitHub-hosted runners cannot reach them. Use self-hosted runners in the VNet
   (or GitHub-hosted runners with Azure private networking).
 - ADF ARM deployments are incremental: deleted objects stay until the post-deployment script removes them.
@@ -549,8 +573,8 @@ Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release
 | OQ-04 | Are the managed identities we must reuse user-assigned or system-assigned? | If system-assigned, GitHub cannot use them: new user-assigned identities are needed | Entra admin |
 | OQ-05 | Elastic pool size and cost owner for feature databases | AZ-03 | Budget owner |
 | OQ-06 | How are Azure SQL scripts deployed today (SQL project/DACPAC, numbered scripts, other)? | Decides the SQL project tooling; process stays the same | Existing team |
-| OQ-07 | Which GitHub plan does the org have (Enterprise Cloud?) | Environment required reviewers on private/internal repos need GitHub Enterprise | GitHub org owner |
 | OQ-08 | ServiceNow: assignment group, change model, and whether CRs can be read/updated via API | SN-01, SN-02 | ServiceNow admin |
+| OQ-07 | GitHub plan | ANSWERED 24 Oct 2026: GitHub Enterprise | Vamshi |
 | OQ-09 | Where do feature (debug) runs write their data today? Do developers share DEV lake paths/tables, or is there a per-developer target? | Output isolation for feature testing (§5.4) | Existing team |
 
 ---

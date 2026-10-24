@@ -1,6 +1,6 @@
 # Shell Data Platform CI/CD: Handoff for the Local Coding Agent
 
-Version 1.1 · 24 Oct 2026 · Owner: Vamshi Singam (lead)
+Version 1.2 · 24 Oct 2026 · Owner: Vamshi Singam (lead)
 
 This file is **self-contained**. It holds the full context, target architecture, specifications, conventions,
 access requirements and reference code. No other repository or document is needed.
@@ -175,8 +175,8 @@ flowchart LR
   G1 -->|squash merge| MAIN[("main")] -->|auto| DEV["DEV"]
   MAIN -.->|"PR list 1234,1240"| G2{{"Gate 2 · cut<br/>cherry-pick by PR"}}
   G2 --> REL[("release/R2026.11.01<br/>manifest.json")] --> B["Build once"]
-  B --> G3{{"Gate 3 · QA lead"}} --> QA["QA"] --> G4{{"Gate 4 · QA sign-off"}} --> UAT["UAT"]
-  UAT --> G5{{"Gate 5 · ServiceNow CR"}} --> G6{{"Gate 6 · release mgr"}} --> PROD["PROD"]
+  B -->|"auto, no approval"| QA["QA"] --> G3{{"Gate 3 · QA sign-off"}} --> UAT["UAT"]
+  UAT --> G4{{"Gate 4 · ServiceNow CR"}} --> G5{{"Gate 5 · release mgr"}} --> PROD["PROD"]
   PROD --> TAG["tag prod/R2026.11.01"] -.->|next baseline| G2
 ```
 
@@ -221,14 +221,34 @@ shell-data-platform/
 
 | Gate | When | Checks | Enforced by |
 |---|---|---|---|
-| 0 Feature test | Before PR | Branch tested end-to-end: ADF debug against the branch's own config DB and the developer's bundle | `feature-env` workflow + PR evidence |
-| 1 PR → main | Every PR | `AB#<id>` in title/body; CODEOWNERS (tech lead) approval; checks green (ADF validate, bundle validate, DACPAC build, tests); `Feature-Test-Run: <ADF run id>` in body; conversations resolved; **squash merge only**; no force-push | Ruleset on `main` + `pr-validation` |
+| 0 Feature test | Before PR | Branch tested end-to-end: ADF debug against the branch's own config DB and the developer's bundle. Evidence = the ADF debug **run ID** in the PR | `feature-env` workflow + PR check |
+| 1 PR → main | Every PR | See "Gate 1 checks" below | Ruleset on `main` + `pr-validation` |
 | — | Merge to main | Deploys DEV (integration check, not the first test) | `deploy-dev` |
 | 2 Release cut | Manual | Listed PRs merged, squash, linked, not in prod; ordered by merge; cherry-picked onto last `prod/*` tag; dependency/conflict check | `release` → `build_release.py` |
-| 3 QA | After cut | QA lead approves the `qa` environment | GitHub Environment |
-| 4 UAT | After QA | QA sign-off; `uat` environment approval | GitHub Environment |
-| 5 Change | Before PROD | CR approved, Scheduled/Implement, inside window, CR PR list == manifest | `cr_gate.py check` |
-| 6 PROD | After CR | Release manager approves `prod` environment | GitHub Environment |
+| — | After cut | **Deploys to QA automatically, no approval** (decision D-17) | `release` → `deploy-env` |
+| 3 UAT | After QA | QA sign-off; `uat` environment approval (QA lead/team) | GitHub Environment |
+| 4 Change | Before PROD | CR approved, Scheduled/Implement, inside window, CR PR list == manifest | `cr_gate.py check` |
+| 5 PROD | After CR | Release manager approves `prod` environment | GitHub Environment |
+
+**Where the Gate 0 run ID comes from.** When the developer clicks **Debug** in ADF Studio (Git mode, on their branch), the run
+appears in the Output tab with its run ID. It is also under **Monitor → Pipeline runs → Debug**. The developer copies it into the PR
+as `Feature-Test-Run: <run id>`. The `pr-validation` check calls the ADF API for that run ID in the DEV factory and fails unless the
+run exists, **succeeded**, and is recent (debug runs are kept only for a limited time). The tech lead can open the run in Monitor.
+
+**Gate 1 checks (all required on every PR to `main`)**
+1. **Description** follows the PR template: what changed, why, how it was tested, per project type touched (ADF / Databricks / SQL config).
+2. **Linked story**: `AB#<id>` from Azure Boards, one story per PR.
+3. **Feature test proof**: `Feature-Test-Run: <run id>`, verified by the pipeline as a successful ADF run (above).
+4. **Reviewer**: tech lead from CODEOWNERS approves; the author cannot approve their own PR; new pushes after approval reset it.
+5. **Automated checks pass**: ADF validate, `databricks bundle validate`, SQL project (DACPAC) build, unit tests, settings files have identical keys (§5.13).
+6. **No secrets and no hardcoded environment values** (server names, storage accounts, URLs) in code: a scan blocks the PR.
+7. **Release notes line** in the description (`Release-Note: …`); it feeds the release manifest and the ServiceNow CR.
+8. **Dependencies called out**: `Depends-On: #<pr>` when this PR needs another PR released first (or `Depends-On: none`).
+9. **Rollback note** for any config or schema change (`Rollback: …`).
+10. Branch **up to date with main**, all conversations resolved, then **squash merge only**; no force-push.
+
+**Gate 2 proposals (not yet confirmed; ask before implementing):** check that every listed PR has a recorded feature test, and
+restrict who can start the cut to the release managers (e.g. required reviewers on the `release-cut` environment).
 
 Branch names: `feature/AB#<id>-<desc>`, `bugfix/AB#<id>-<desc>`, `hotfix/AB#<id>-<desc>` (branched from the latest `prod/*` tag,
 PR into main, then released alone with an emergency CR). `release/<id>` and `prod/<id>` are created only by the release-bot app.
@@ -293,7 +313,7 @@ record the choice in `DECISIONS.md`. Examples are in Appendix D.
 
 | Workflow | Trigger | Environment | Identity | Steps |
 |---|---|---|---|---|
-| `pr-validation` | `pull_request` → main | none | CI identity (federated subject `…:pull_request`) | story-link (AB#) · feature-test-evidence · adf-validate (`npm run build validate`) · bundle-validate · sql-build (DACPAC) · unit-tests · aggregate job `pr-validation` = required check. Path filters per folder. Permissions `id-token: write`, `contents: read`. |
+| `pr-validation` | `pull_request` → main | none | CI identity (federated subject `…:pull_request`) | pr-template fields (Release-Note, Depends-On, Rollback) · story-link (AB#) · feature-test-evidence (ADF API: run succeeded) · secrets/hardcoded-values scan · settings-keys-match · adf-validate (`npm run build validate`) · bundle-validate · sql-build (DACPAC) · unit-tests · aggregate job `pr-validation` = required check. Path filters per folder. Permissions `id-token: write`, `contents: read`. |
 | `feature-env` | push `feature/**`, `bugfix/**` (sqlconfig changes) + dispatch | `dev-feature` | DEV deploy identity | §5.4 |
 | `feature-cleanup` | `pull_request: closed` + nightly | `dev-feature` | DEV deploy identity | §5.4 |
 | `deploy-dev` | push main (ignore docs/**) | `dev` | DEV deploy identity | calls `deploy-env` with `env: dev` |
@@ -301,7 +321,7 @@ record the choice in `DECISIONS.md`. Examples are in Appendix D.
 | `release` | `workflow_dispatch`: `pr_list` (required), `release_id` (default `R<yyyy.MM.dd>`), `change_request` (default `auto`), `strict_dependencies` (default true) | `release-cut`, `qa`, `uat`, `prod` | per env + release-bot | jobs: `cut` → `build` → `deploy-qa` → `deploy-uat` → `change-gate` → `deploy-prod`; job summary shows the PR table at each stage; stories moved per stage |
 
 GitHub Environments: `dev-feature` (branches `feature/**`, `bugfix/**`), `dev` (main), `release-cut` (main),
-`qa`, `uat`, `prod` (branches `release/*`; required reviewers: qa-leads, uat-signoff, release-managers).
+`qa`, `uat`, `prod` (branches `release/*`). Required reviewers: **none on `qa`** (QA deploys automatically after the cut), `uat` = QA sign-off group, `prod` = release managers.
 
 ### 5.7 Release mechanism (cherry-pick by PR)
 

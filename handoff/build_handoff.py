@@ -55,12 +55,16 @@ out.append("""
 | D-14 | Deploy order: Azure SQL config → Unity Catalog → Databricks → ADF | Dependencies first |
 | D-15 | Environment settings in Git (`settings/<env>.json`) fed to ADF, bundle and SQL; secrets in Key Vault; Azure App Configuration rejected | Only reviewed, released changes; no hand edits to PROD (§5.13) |
 | D-16 | Known caveats accepted: overlapping PRs, main drifting from PROD, ADF debug not testing triggers or volume | Managed by team habits and QA (§5.15) |
+| D-17 | **No approval gate for QA**: the release deploys to QA automatically after the cut. Gates renumbered 0–5 | QA environment is for testing; approvals start at UAT |
+| D-18 | Gate 1 checks fixed as the 10 items in §5.3, including ADF API verification that the feature-test run succeeded | Explicit, enforceable definition of a reviewable PR |
+| D-19 | GitHub org is on **GitHub Enterprise** (OQ-07 answered) | Environment approvals available for UAT and PROD |
 
 ### 5.15 Things that are easy to get wrong
 
 - Federated credentials are **not supported on system-assigned managed identities**. If the identities the team wants to reuse
   are system-assigned (e.g. a factory's own identity), new user-assigned identities are needed (max 20 federated credentials each).
-- GitHub Environment **required reviewers on private/internal repos need GitHub Enterprise**. Without it, Gates 3, 4 and 6 have no approval step.
+- GitHub Environment required reviewers on private/internal repos need GitHub Enterprise. **Confirmed: the org is on GitHub Enterprise**, so the UAT and PROD approvals work.
+- **QA has no approval gate.** Every release cut deploys to QA immediately, replacing whatever is there. Coordinate cuts with the QA team so a release under test is not overwritten.
 - If SQL/Databricks/ADF use private endpoints, GitHub-hosted runners cannot reach them. Use self-hosted runners in the VNet
   (or GitHub-hosted runners with Azure private networking).
 - ADF ARM deployments are incremental: deleted objects stay until the post-deployment script removes them.
@@ -80,7 +84,7 @@ out.append("""
 ## 6. Open questions (answer in Phase 2 from evidence)
 """)
 out.append("| ID | Question | What it affects | Who can answer |\n|---|---|---|---|")
-for q in OPEN + [("OQ-09","Where do feature (debug) runs write their data today? Do developers share DEV lake paths/tables, or is there a per-developer target?","Output isolation for feature testing (§5.4)","Existing team")]:
+for q in [q for q in OPEN if q[0] != "OQ-07"] + [("OQ-07","GitHub plan","ANSWERED 24 Oct 2026: GitHub Enterprise","Vamshi"),("OQ-09","Where do feature (debug) runs write their data today? Do developers share DEV lake paths/tables, or is there a per-developer target?","Output isolation for feature testing (§5.4)","Existing team")]:
     out.append("| " + " | ".join(q) + " |")
 
 def code(path, lang):
