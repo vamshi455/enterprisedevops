@@ -18,7 +18,45 @@ for k, name in GRANTORS.items():
         out.append("| " + " | ".join(c.replace("|", "/") for c in cells) + " |")
 
 out.append("""
-### 5.13 Things that are easy to get wrong
+### 5.13 Environment-specific settings (decided: Git is the source of truth)
+
+- One file per environment: `settings/dev.json`, `settings/qa.json`, `settings/uat.json`, `settings/prod.json`, all with
+  **the same keys**. Example keys: `sourceServers.<system>`, `landingStorageAccount`, `databricksHost`, `ucCatalog`,
+  `keyVaultName`, `selfHostedIrName`, `configSqlServer`, `configDb`.
+- The deploy workflow reads `settings/<env>.json` and feeds the same values to all three project types:
+  - **ADF:** rendered into ARM parameter overrides (linked service servers/URLs, global parameters).
+  - **Databricks:** bundle variables (`databricks bundle deploy -t <env> --var key=value`, or a generated variables file).
+  - **Azure SQL config:** SQLCMD variables (`/v:Key=value`) used by the MERGE scripts, e.g. source server names per environment.
+- **Secrets never go in settings files.** They stay in Key Vault: ADF linked services use Key Vault references; Databricks uses a
+  Key Vault-backed secret scope. Settings files hold only names and URLs.
+- Every change goes through a PR and ships with a release. A PR check fails if the four files don't have identical keys.
+  CODEOWNERS puts `settings/prod.json` under the release managers.
+- **Azure App Configuration was considered and rejected.** It lets people edit values, including PROD, in the portal outside
+  review and outside any release; that caused problems in a previous project. Revisit only if values must be shared with other
+  tools at runtime, and then only as a read-only copy written by the pipeline from Git.
+
+### 5.14 Decision record (as of 24 Oct 2026)
+
+| # | Decision | Reason |
+|---|---|---|
+| D-01 | Every feature is fully tested on its feature branch; only approved, tested PRs reach `main` | Isolate developers; stop testing on `main` |
+| D-02 | Release = list of PRs, cherry-picked by squash commit onto the last `prod/*` tag | Move only what is ready; no per-commit cherry-picks |
+| D-03 | Squash merge only; 1 PR = 1 commit = 1 story (`AB#`) | PRs become selectable and traceable |
+| D-04 | `main` deploys to DEV only (integration) | DEV is a check after merge, not the first test |
+| D-05 | Build once; the same artifact goes QA → UAT → PROD | What QA tested is what reaches PROD |
+| D-06 | GitHub + GitHub Actions; approvals via GitHub Environments (qa, uat, prod) | Team already uses GitHub |
+| D-07 | Release workflow takes a comma-separated `pr_list` input | Same model as the previous Azure DevOps process |
+| D-08 | Azure Boards stories linked by `AB#<id>`; the release moves story states | Stories live in Azure Boards |
+| D-09 | ServiceNow CR gate before PROD: approved, in window, CR PR list = manifest | Ties the CR to the exact PRs |
+| D-10 | Reuse existing managed identities via OIDC federated credentials; no Azure secrets in GitHub | Admin requirement; identities must be user-assigned |
+| D-11 | Per-branch config DB copy `sqldb-etlcfg-ft-<id>` (copy of DEV + branch scripts), dropped on PR close | Config testable on the branch (§5.4) |
+| D-12 | Config data as one idempotent MERGE per key; runtime tables never deployed | Clean cherry-picks; protects environment state |
+| D-13 | Databricks feature isolation via bundle development mode | Built-in per-developer isolation |
+| D-14 | Deploy order: Azure SQL config → Unity Catalog → Databricks → ADF | Dependencies first |
+| D-15 | Environment settings in Git (`settings/<env>.json`) fed to ADF, bundle and SQL; secrets in Key Vault; Azure App Configuration rejected | Only reviewed, released changes; no hand edits to PROD (§5.13) |
+| D-16 | Known caveats accepted: overlapping PRs, main drifting from PROD, ADF debug not testing triggers or volume | Managed by team habits and QA (§5.15) |
+
+### 5.15 Things that are easy to get wrong
 
 - Federated credentials are **not supported on system-assigned managed identities**. If the identities the team wants to reuse
   are system-assigned (e.g. a factory's own identity), new user-assigned identities are needed (max 20 federated credentials each).
@@ -27,14 +65,22 @@ out.append("""
   (or GitHub-hosted runners with Azure private networking).
 - ADF ARM deployments are incremental: deleted objects stay until the post-deployment script removes them.
 - Never edit a released `V`-style schema script or a config MERGE to *remove* rows silently. Add a new change that does it explicitly.
-- Long-unreleased PRs on main increase drift. Review the `candidates` list (unreleased PRs) at every release planning.
+- **Overlapping PRs on the same file.** If two PRs change the same ADF pipeline (or the same config key) and only the later one
+  is released, the cherry-pick conflicts. The release tool catches it and names the missing PR, but the team should keep to one
+  story per pipeline at a time and release dependent PRs together.
+- **main drifts from PROD.** Unreleased PRs accumulate on `main`, so DEV and every feature copy contain work that is not in PROD
+  yet. Review the `candidates` list (unreleased PRs) at every release planning and keep it short.
+- **ADF debug proves logic, not operations.** Debug runs do not exercise triggers, and they use the DEV integration runtime and
+  DEV data. Scheduling, volume and performance are first proven in QA.
+- **Feature copies:** reset watermarks to test real loads, refresh stale copies, and never let feature runs write to shared DEV
+  targets (§5.4).
 
 ---
 
 ## 6. Open questions (answer in Phase 2 from evidence)
 """)
 out.append("| ID | Question | What it affects | Who can answer |\n|---|---|---|---|")
-for q in OPEN:
+for q in OPEN + [("OQ-09","Where do feature (debug) runs write their data today? Do developers share DEV lake paths/tables, or is there a per-developer target?","Output isolation for feature testing (§5.4)","Existing team")]:
     out.append("| " + " | ".join(q) + " |")
 
 def code(path, lang):

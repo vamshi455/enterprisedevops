@@ -1,6 +1,6 @@
 # Shell Data Platform CI/CD: Handoff for the Local Coding Agent
 
-Version 1.0 · 24 Oct 2026 · Owner: Vamshi Singam (lead)
+Version 1.1 · 24 Oct 2026 · Owner: Vamshi Singam (lead)
 
 This file is **self-contained**. It holds the full context, target architecture, specifications, conventions,
 access requirements and reference code. No other repository or document is needed.
@@ -125,6 +125,8 @@ Combine the existing files with fresh read-only checks. Record the source for ev
 | GitHub | org, plan (Enterprise?), existing repos for this team, Actions policy, existing workflows, rulesets/branch protection, environments, installed apps (Azure Boards, ADF, Databricks) | `gh api orgs/<org>`, `gh repo list <org>`, `gh api repos/<o>/<r>/rulesets`, `gh api repos/<o>/<r>/environments`, `gh workflow list -R <o>/<r>` |
 | Azure Boards | org, project, area path, work-item types and **state names** | `az boards work-item show`, `az devops project show` |
 | ServiceNow | instance URL, change model, assignment group, whether API access exists | ask Vamshi if not discoverable |
+| Environment-specific values | every value that differs per environment: source server names (QA reads the test source, UAT the UAT source, …), storage accounts and paths, Databricks workspace and catalog, Key Vault names, integration runtime names. Record where each lives today (ADF parameter files, global parameters, config DB rows, bundle files, pipeline variables) | ADF ARM parameter files and global parameters, `SELECT` on config tables, bundle `targets`, existing pipeline variables |
+| Feature-run outputs | where ADF/Databricks runs write data in DEV (lake paths, catalogs/schemas) and whether developers share the same targets | linked services, datasets, bundle variables; ask the team |
 
 Also write `environment/CURRENT_PROCESS.md`, covering how the team works today:
 - the existing repos and pipelines and their triggers
@@ -153,7 +155,7 @@ Stop. Report the answers, the top 5 risks, and anything you could not access.
 
 | Step | Deliverable | Acceptance |
 |---|---|---|
-| 4.1 Repo scaffold | `shell-data-platform` repo layout per §5.2 using real names; import existing ADF/Databricks/SQL content as found in Phase 2; CODEOWNERS; PR template; README | Builds locally: `dotnet build sqlconfig`, `databricks bundle validate -t dev`, ADF `npm run build validate` |
+| 4.1 Repo scaffold | `shell-data-platform` repo layout per §5.2 using real names; import existing ADF/Databricks/SQL content as found in Phase 2; `settings/<env>.json` per §5.13 plus a script that renders ADF ARM parameters, bundle variables and SQLCMD variables from it; CODEOWNERS; PR template; README | Builds locally: `dotnet build sqlconfig`, `databricks bundle validate -t dev`, ADF `npm run build validate` |
 | 4.2 Release tool | Port Appendix A to `scripts/release/`, add the **GitHub provider** (§5.7); port the tests (Appendix B) and add GitHub-provider tests with a mocked API | `pytest` green |
 | 4.3 PR validation | `.github/workflows/pr-validation.yml` per §5.6; `docs/branch-protection.md` with the ruleset to request | Workflow green on a test PR; fails without AB# or Feature-Test-Run |
 | 4.4 Feature environment | `feature-env.yml`, `feature-cleanup.yml`; ADF `configDb` parameterisation (§5.4); `docs/feature-testing.md` | One branch gets its own DB; ADF debug against it succeeds; DB dropped after PR close |
@@ -197,6 +199,7 @@ flowchart LR
 
 ```
 shell-data-platform/
+├── settings/{dev,qa,uat,prod}.json   single source of environment-specific values (§5.13)
 ├── adf/                         ADF Git root of the DEV factory (pipeline/, dataset/, linkedService/, trigger/, …)
 │   ├── package.json             @microsoft/azure-data-factory-utilities
 │   ├── arm-template-parameters-definition.json
@@ -244,6 +247,22 @@ PR into main, then released alone with an emergency CR). `release/<id>` and `pro
 - `feature-cleanup` runs on `pull_request: closed` and nightly. It drops `sqldb-etlcfg-ft-*` whose branch is gone or that are older than 14 days.
 - Database users created `FROM EXTERNAL PROVIDER` are copied with the DB, so the factory MI keeps access to the copy.
 
+**How the feature copy behaves (read before building)**
+- The database itself never branches; only the scripts in Git do. The copy is a snapshot of DEV *at the moment it is taken*:
+  source system details, column lists, flags **and the current watermarks**. The branch's schema changes and config MERGE
+  scripts are applied on top.
+- While testing, ADF debug runs read and advance watermarks **only in the copy**. DEV's watermarks are never touched.
+- At merge, **nothing flows back from the copy**. Only the scripts merge to `main` and are applied to DEV by `deploy-dev`.
+  The copy is then dropped.
+- **Watermarks may need resetting.** The copy starts where DEV left off, so a feature run can pull zero rows.
+  `docs/feature-testing.md` must show developers how to set a watermark back in their copy to test a real load.
+- **Copies go stale.** A copy does not see config changes merged after it was taken. Re-run `feature-env` (manual dispatch)
+  to refresh it on long-lived branches.
+- **Only the config is isolated, not where data lands.** If feature runs write to the same DEV lake paths or tables as everyone
+  else, they collide. Feature runs must write to a per-branch or per-developer target (e.g. lake folder `…/_feature/<storyId>/`
+  and the developer's `dev_<user>` schema), passed as pipeline parameters. Open question OQ-09.
+- **Runtime tables (watermarks, run logs) must never appear in deploy scripts**, or a release would overwrite QA/UAT/PROD state.
+
 **ADF**
 - Only the DEV factory is Git-connected (collaboration branch `main`, root folder `/adf`), with **Disable publish** ON.
 - The config DB linked service is parameterised: `"parameters": {"dbName": {"type":"String","defaultValue":"<dev config db>"}}`
@@ -265,6 +284,8 @@ PR into main, then released alone with an emergency CR). `release/<id>` and `pro
 | Runtime state (watermarks, run logs) | schema only | **Never** deployed or overwritten |
 
 One file per config key means two PRs rarely touch the same file, so releases cherry-pick cleanly.
+**Config rows contain environment-specific values** (for example source server names: QA reads the test source, UAT the UAT
+source). Never hardcode them in MERGE files. Use SQLCMD variables whose values come from `settings/<env>.json` (§5.13).
 If the team's current tooling is not DACPAC (Phase 2), keep the same three-way split with a migration runner and
 record the choice in `DECISIONS.md`. Examples are in Appendix D.
 
