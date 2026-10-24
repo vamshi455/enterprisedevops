@@ -1,0 +1,362 @@
+# Shell Data Platform CI/CD: Handoff for the Local Coding Agent
+
+Version 1.0 · 24 Oct 2026 · Owner: Vamshi Singam (lead)
+
+This file is **self-contained**. It holds the full context, target architecture, specifications, conventions,
+access requirements and reference code. No other repository or document is needed.
+
+---
+
+## 0. How to use this document
+
+**For Vamshi:** put this file at `PDX_Projects/devops-cicd/HANDOFF.md`, open `PDX_Projects/devops-cicd` in VS Code,
+choose Copilot Chat **Agent** mode with your Claude model, and send:
+
+> Read HANDOFF.md completely. Then do Phase 1 only and stop for my review.
+
+After each phase, review and say "Proceed to Phase N".
+
+**For the agent:** work strictly phase by phase (§4). Do not start a phase until the previous one is reviewed.
+Section 5 is the target design: implement it, do not redesign it. If the real environment contradicts it,
+record the conflict in `DECISIONS.md` and ask.
+
+---
+
+## 1. Mission
+
+Build a new, parallel CI/CD process for a data platform team whose current DevOps process has broken down.
+Developers will build on it under Vamshi's lead.
+
+**Three project types, one repository:**
+
+| Type | What it is | Build artifact |
+|---|---|---|
+| Azure Data Factory (ADF) | Metadata-driven pipelines reading configuration from an Azure SQL DB | ARM template |
+| Azure SQL config DB | Standalone Azure SQL database holding ETL configuration (sources, mappings, flags) | DACPAC + idempotent config data scripts |
+| Databricks | Notebooks, jobs and Unity Catalog objects; the team already uses Databricks Asset Bundles | Bundle |
+
+**Environments:** DEV, QA (a dedicated QA team tests), UAT (business users test), PROD. Each has its own factory,
+config DB and Databricks workspace.
+
+**Platform services:** GitHub + GitHub Actions (CI/CD), Azure Boards (stories), ServiceNow (change requests for
+PROD), Microsoft Entra ID (existing managed identities must be reused).
+
+### Problems to fix
+
+1. Everything merges to `main` and is tested on `main`. Then all of `main` moves forward, so one failed story blocks everyone.
+2. Cherry-picking to higher environments is done per commit, which is error-prone.
+3. Azure SQL config scripts reach a database only after merging to `main`. ADF pipelines that need new config therefore
+   cannot be tested end-to-end on a feature branch, and untested work lands in `main`.
+
+### Principles
+
+- **Every feature is fully tested on its own feature branch, isolated per developer.** Only approved, tested PRs reach `main`.
+- **A release is a list of PRs**: never individual commits, never all of `main`.
+- **Build once, deploy many**: QA, UAT and PROD receive the identical artifact.
+- **No Azure secrets in GitHub**: OIDC federated credentials on the existing managed identities.
+- Every PR is linked to an Azure Boards story; every PROD deployment is tied to an approved ServiceNow CR.
+
+---
+
+## 2. Rules for the agent (always)
+
+1. **Read-only by default.** Discovery commands (`az … list/show`, `gh api` GET, `databricks … list/get`, `SELECT`)
+   are fine. Ask before any command that creates, changes or deletes anything in Azure, Databricks, GitHub settings or a database.
+2. **Never touch QA, UAT or PROD resources directly.** They change only through approved release workflows.
+3. **Do not grant access** (role assignments, federated credentials, SQL users, Databricks principals, GitHub settings).
+   Admins do that. Record what is missing in `environment/ACCESS_GAPS.md`.
+4. **No secrets** in files, commits, logs or chat. Redact anything secret-looking you encounter.
+5. **All code through branches and PRs.** Branches: `feature/AB#<id>-<desc>` or `chore/<desc>`. Never push to `main`.
+6. **Evidence over assumptions.** Every fact you rely on goes in `environment/ENVIRONMENT_FACTS.md` with its source
+   (command or file, and date). Unknown → write `UNKNOWN` and ask. Never invent resource names.
+7. **Small reviewable steps.** At the end of each phase or step: update `STATUS.md`, list what changed, then stop.
+8. Use official CLIs: `az`, `gh`, `databricks`, `sqlpackage`, `dotnet`, `npm`. Pin GitHub Action versions.
+9. Do not move, rename or delete existing files in `PDX_Projects/devops-cicd/`; they hold earlier discovery work.
+
+---
+
+## 3. Workspace layout
+
+```
+PDX_Projects/devops-cicd/
+├── HANDOFF.md                      ← this file (do not edit; propose changes in DECISIONS.md)
+├── <existing discovery files>      ← gathered earlier; read, never delete
+├── .github/
+│   ├── copilot-instructions.md     ← created in Phase 1 from Appendix E
+│   └── prompts/                    ← created in Phase 1 from Appendix F
+├── STATUS.md                       ← living: done / in progress / blocked / next
+├── DECISIONS.md                    ← append-only: date, decision, reason
+├── environment/
+│   ├── INVENTORY.md                ← Phase 1: what already exists in this folder
+│   ├── ENVIRONMENT_FACTS.md        ← Phase 2: discovered facts with evidence
+│   ├── CURRENT_PROCESS.md          ← Phase 2: how the team builds and deploys today
+│   ├── REQUIREMENTS.md             ← Phase 3: requirement → current state → gap → work item
+│   └── ACCESS_GAPS.md              ← Phase 3: needed vs existing access + short admin email
+└── shell-data-platform/            ← Phase 4: the new platform repository (git)
+```
+
+---
+
+## 4. Phase plan (in order)
+
+### Phase 1: Set up the workspace
+
+1. List every file and folder already in `PDX_Projects/devops-cicd/`. Summarise each in `environment/INVENTORY.md`
+   (what it contains, which environment, how current). Note where it already answers a question from §6.
+2. Create `STATUS.md`, `DECISIONS.md` and the `environment/` folder if missing.
+3. Create `.github/copilot-instructions.md` from Appendix E and the prompt files from Appendix F.
+   If a `copilot-instructions.md` already exists, append ours under a heading `## Shell CI/CD handoff`.
+4. Stop. Report: the inventory summary, which open questions (§6) already look answered, and what is missing.
+
+### Phase 2: Discover the existing environment (read-only)
+
+Fill `environment/ENVIRONMENT_FACTS.md` with one section per environment (DEV, QA, UAT, PROD), as tables.
+Combine the existing files with fresh read-only checks. Record the source for every value.
+
+| Area | Collect | Example commands |
+|---|---|---|
+| Tenant / subscriptions | tenant ID, subscription per env, resource groups | `az account show`, `az account list`, `az group list` |
+| Data Factory | name, RG, location, Git config (repo, collaboration branch, root folder), global parameters, linked services (esp. the config DB one), integration runtimes (Azure / self-hosted / shared), triggers, managed identity type + IDs | `az datafactory list`, `az datafactory show`, `az datafactory linked-service list`, `az datafactory integration-runtime list`, `az datafactory trigger list` |
+| Azure SQL config DB | server, database, tier, Entra admin, public network access / firewall / private endpoint, elastic pools, principals in the DB, schema objects, which tables are config vs runtime state | `az sql server list/show`, `az sql db list`, `az sql elastic-pool list`, `az sql server ad-admin list`, `SELECT name,type_desc FROM sys.database_principals`, `SELECT s.name,t.name FROM sys.tables t JOIN sys.schemas s ON s.schema_id=t.schema_id` |
+| Databricks | workspace URL per env, metastore, catalogs/schemas per env, SQL warehouses, serverless availability, cluster policies, existing bundles (location, targets, run_as), service principals, Git folder settings | `az databricks workspace list`, `databricks catalogs list`, `databricks warehouses list`, `databricks cluster-policies list`, `databricks service-principals list`, `databricks bundle validate` in existing bundle folders |
+| Identities | every managed identity the team uses: name, client ID, object ID, **user- vs system-assigned**, role assignments, existing federated credentials | `az identity list`, `az role assignment list --assignee <objectId> --all`, `az identity federated-credential list` |
+| Network | private endpoints, VNets, self-hosted IRs, whether GitHub-hosted runners can reach SQL/Databricks/ARM | `az network private-endpoint list`, `az sql server show --query publicNetworkAccess` |
+| Key Vault | vaults used by linked services, access model (RBAC vs policies) | `az keyvault list`, `az keyvault show` |
+| GitHub | org, plan (Enterprise?), existing repos for this team, Actions policy, existing workflows, rulesets/branch protection, environments, installed apps (Azure Boards, ADF, Databricks) | `gh api orgs/<org>`, `gh repo list <org>`, `gh api repos/<o>/<r>/rulesets`, `gh api repos/<o>/<r>/environments`, `gh workflow list -R <o>/<r>` |
+| Azure Boards | org, project, area path, work-item types and **state names** | `az boards work-item show`, `az devops project show` |
+| ServiceNow | instance URL, change model, assignment group, whether API access exists | ask Vamshi if not discoverable |
+
+Also write `environment/CURRENT_PROCESS.md`, covering how the team works today:
+- the existing repos and pipelines and their triggers
+- how ADF is published
+- how the SQL config scripts are deployed (DACPAC? numbered scripts? what tool?)
+- how Databricks bundles are deployed
+- how promotions and cherry-picks happen today
+- pain points seen in pipeline history
+
+At the top of `ENVIRONMENT_FACTS.md`, answer each open question in §6 with: answer, evidence, confidence.
+Stop. Report the answers, the top 5 risks, and anything you could not access.
+
+### Phase 3: Requirements and gap analysis
+
+1. Write `environment/REQUIREMENTS.md`: one row per requirement R-01 … from §5 (gates, feature isolation per project type,
+   release-by-PR, environments/approvals, ServiceNow, Boards, identities, deploy order). Columns:
+   requirement · current state (from Phase 2) · gap · proposed work item · depends on (access / decision).
+2. Write `environment/ACCESS_GAPS.md`. For every item in §5.12, check the live state where possible and mark it
+   Exists / Missing / Cannot check, with evidence. Then add a **one-page admin email** listing only the
+   Missing items, grouped by admin, using real resource names. DEV items come first.
+3. List the decisions needed from Vamshi (e.g. reuse the existing repo or create a new one; DACPAC vs existing script tooling;
+   self-hosted runners). Record proposals in `DECISIONS.md` as "Proposed".
+4. Stop for review.
+
+### Phase 4: Development (each step is a branch + PR; stop after each)
+
+| Step | Deliverable | Acceptance |
+|---|---|---|
+| 4.1 Repo scaffold | `shell-data-platform` repo layout per §5.2 using real names; import existing ADF/Databricks/SQL content as found in Phase 2; CODEOWNERS; PR template; README | Builds locally: `dotnet build sqlconfig`, `databricks bundle validate -t dev`, ADF `npm run build validate` |
+| 4.2 Release tool | Port Appendix A to `scripts/release/`, add the **GitHub provider** (§5.7); port the tests (Appendix B) and add GitHub-provider tests with a mocked API | `pytest` green |
+| 4.3 PR validation | `.github/workflows/pr-validation.yml` per §5.6; `docs/branch-protection.md` with the ruleset to request | Workflow green on a test PR; fails without AB# or Feature-Test-Run |
+| 4.4 Feature environment | `feature-env.yml`, `feature-cleanup.yml`; ADF `configDb` parameterisation (§5.4); `docs/feature-testing.md` | One branch gets its own DB; ADF debug against it succeeds; DB dropped after PR close |
+| 4.5 Deploy DEV | reusable `deploy-env.yml` + `deploy-dev.yml` (§5.6, §5.10) | Merge to main deploys DEV in the right order |
+| 4.6 Release | `release.yml` with the `pr_list` input (§5.6–5.9); port Appendix C | Dry-run (`plan`) correct; a real release of one PR reaches QA |
+| 4.7 Pilot | One real story end-to-end; `pilot/PILOT_REPORT.md` | Story reaches QA (and UAT if approvers are available) through the new path |
+
+---
+
+## 5. Target architecture (implement this)
+
+### 5.1 Overview
+
+```mermaid
+flowchart LR
+  FB["feature/AB#1234<br/>own config DB · ADF debug · bundle dev mode"] -->|PR| G1{{"Gate 1<br/>story · tech lead · checks<br/>Feature-Test-Run"}}
+  G1 -->|squash merge| MAIN[("main")] -->|auto| DEV["DEV"]
+  MAIN -.->|"PR list 1234,1240"| G2{{"Gate 2 · cut<br/>cherry-pick by PR"}}
+  G2 --> REL[("release/R2026.11.01<br/>manifest.json")] --> B["Build once"]
+  B --> G3{{"Gate 3 · QA lead"}} --> QA["QA"] --> G4{{"Gate 4 · QA sign-off"}} --> UAT["UAT"]
+  UAT --> G5{{"Gate 5 · ServiceNow CR"}} --> G6{{"Gate 6 · release mgr"}} --> PROD["PROD"]
+  PROD --> TAG["tag prod/R2026.11.01"] -.->|next baseline| G2
+```
+
+**Service-to-service authentication**
+
+| # | From → To | How | Permission needed |
+|---|---|---|---|
+| 1 | GitHub workflow → Entra ID | OIDC token exchanged for the environment's **user-assigned** managed identity (federated credential subject `repo:<org>/<repo>:environment:<env>`) | Federated credential on the identity |
+| 2 | Deploy identity → ADF | ARM deployment, trigger stop/start | Data Factory Contributor on the factory's RG |
+| 2 | Deploy identity → Azure SQL | Entra token (`sqlpackage /AccessToken` or `azure/sql-action`) | Contained user, `db_owner` in the config DB |
+| 2 | Deploy identity → Databricks | Databricks CLI `azure-cli` auth after `azure/login` | Workspace service principal; CAN MANAGE on bundle root; UC privileges; CAN USE warehouse |
+| 3 | ADF Studio (DEV) / Databricks Git folders ↔ GitHub | Org-approved GitHub apps, per-developer sign-in | Org owner approves apps |
+| 4 | Factory MI (existing) → config DB / Databricks / ADLS / Key Vault | Managed identity at runtime | db_datareader/writer + EXECUTE; CAN MANAGE RUN on jobs; Storage Blob Data Contributor; Key Vault Secrets User |
+| 5 | Azure Boards ↔ GitHub | Azure Boards app; `AB#<id>` in PR links the story | App installed + project connected |
+| 6 | Release workflow → Azure Boards API | Managed identity added to the Azure DevOps org; token for resource `499b84ac-1321-427f-aa17-267ca6975798` | Basic access + Contributor on project/area |
+| 7 | Release workflow → ServiceNow | Integration user / OAuth client; secret in the `prod` GitHub environment | Read/update `change_request` |
+| 8 | release-bot GitHub App → repo | App installation token (`actions/create-github-app-token`) | Contents RW; ruleset bypass for `release/*` and `prod/*` |
+
+### 5.2 Repository layout
+
+```
+shell-data-platform/
+├── adf/                         ADF Git root of the DEV factory (pipeline/, dataset/, linkedService/, trigger/, …)
+│   ├── package.json             @microsoft/azure-data-factory-utilities
+│   ├── arm-template-parameters-definition.json
+│   └── arm-parameters/{dev,qa,uat,prod}.json
+├── databricks/                  Databricks Asset Bundle (databricks.yml, resources/, src/)
+├── sqlconfig/                   SQL project for the config DB
+│   ├── EtlConfig.sqlproj
+│   ├── Tables/ Procs/ Views/    schema (DACPAC)
+│   ├── Data/<area>/<KEY>.sql    one idempotent MERGE per config key
+│   └── Scripts/Script.PostDeployment.sql   :r includes for Data files
+├── scripts/release/             build_release.py (+ GitHub provider), cr_gate.py
+├── tests/
+├── releases/                    manifests (only on release/* branches)
+├── docs/
+└── .github/ (workflows/, CODEOWNERS, pull_request_template.md)
+```
+
+### 5.3 Branching and gates
+
+| Gate | When | Checks | Enforced by |
+|---|---|---|---|
+| 0 Feature test | Before PR | Branch tested end-to-end: ADF debug against the branch's own config DB and the developer's bundle | `feature-env` workflow + PR evidence |
+| 1 PR → main | Every PR | `AB#<id>` in title/body; CODEOWNERS (tech lead) approval; checks green (ADF validate, bundle validate, DACPAC build, tests); `Feature-Test-Run: <ADF run id>` in body; conversations resolved; **squash merge only**; no force-push | Ruleset on `main` + `pr-validation` |
+| — | Merge to main | Deploys DEV (integration check, not the first test) | `deploy-dev` |
+| 2 Release cut | Manual | Listed PRs merged, squash, linked, not in prod; ordered by merge; cherry-picked onto last `prod/*` tag; dependency/conflict check | `release` → `build_release.py` |
+| 3 QA | After cut | QA lead approves the `qa` environment | GitHub Environment |
+| 4 UAT | After QA | QA sign-off; `uat` environment approval | GitHub Environment |
+| 5 Change | Before PROD | CR approved, Scheduled/Implement, inside window, CR PR list == manifest | `cr_gate.py check` |
+| 6 PROD | After CR | Release manager approves `prod` environment | GitHub Environment |
+
+Branch names: `feature/AB#<id>-<desc>`, `bugfix/AB#<id>-<desc>`, `hotfix/AB#<id>-<desc>` (branched from the latest `prod/*` tag,
+PR into main, then released alone with an emergency CR). `release/<id>` and `prod/<id>` are created only by the release-bot app.
+
+### 5.4 Feature-branch isolation (the key change)
+
+**Azure SQL config DB**
+- On push to `feature/**` or `bugfix/**` that touches `sqlconfig/**` (or on manual dispatch), the `feature-env` workflow:
+  1. derives `<id>` from `AB#<id>` in the branch name (fails if absent)
+  2. drops `sqldb-etlcfg-ft-<id>` if present, then `az sql db copy` from the DEV config DB into it. Use the
+     `pool-etlcfg-feature` elastic pool on the DEV server, and tag the copy with `branch` and `createdBy`.
+     DEV always equals `main`, so the copy contains every merged change.
+  3. builds the branch DACPAC and publishes it to the copy with DEV SQLCMD values (`/p:BlockOnPossibleDataLoss=true`)
+  4. grants the developers group `db_datawriter` on the copy. The deploy identity is `db_owner` in DEV, and that user is copied too.
+  5. prints the ADF debug parameters to use
+- `feature-cleanup` runs on `pull_request: closed` and nightly. It drops `sqldb-etlcfg-ft-*` whose branch is gone or that are older than 14 days.
+- Database users created `FROM EXTERNAL PROVIDER` are copied with the DB, so the factory MI keeps access to the copy.
+
+**ADF**
+- Only the DEV factory is Git-connected (collaboration branch `main`, root folder `/adf`), with **Disable publish** ON.
+- The config DB linked service is parameterised: `"parameters": {"dbName": {"type":"String","defaultValue":"<dev config db>"}}`
+  and `Initial Catalog=@{linkedService().dbName}`. Every pipeline that reads config has a `configDb` parameter
+  (default = DEV DB) passed through datasets to the linked service. QA/UAT/PROD values come from ARM parameter files.
+- Developers debug in ADF Studio on their branch with `configDb = sqldb-etlcfg-ft-<id>`, and paste the run id into the PR.
+
+**Databricks**
+- Developers run `databricks bundle deploy -t dev` themselves. The `dev` target uses `mode: development`, which prefixes
+  jobs with `[dev <user>]` and uses schema `dev_${workspace.current_user.short_name}`.
+- ADF debug runs point the notebook/job path parameter at the developer's deployed bundle.
+
+### 5.5 Azure SQL config DB conventions
+
+| Kind | Location | Deployed by |
+|---|---|---|
+| Schema (tables, procs, views) | `Tables/`, `Procs/`, `Views/` | DACPAC (`dotnet build` → `sqlpackage /Action:Publish`) |
+| Config data | `Data/<area>/<KEY>.sql`: one MERGE per config key; env values via SQLCMD variables (`$(Env)`, etc.) | Post-deployment script, every deploy, idempotent |
+| Runtime state (watermarks, run logs) | schema only | **Never** deployed or overwritten |
+
+One file per config key means two PRs rarely touch the same file, so releases cherry-pick cleanly.
+If the team's current tooling is not DACPAC (Phase 2), keep the same three-way split with a migration runner and
+record the choice in `DECISIONS.md`. Examples are in Appendix D.
+
+### 5.6 GitHub workflows
+
+| Workflow | Trigger | Environment | Identity | Steps |
+|---|---|---|---|---|
+| `pr-validation` | `pull_request` → main | none | CI identity (federated subject `…:pull_request`) | story-link (AB#) · feature-test-evidence · adf-validate (`npm run build validate`) · bundle-validate · sql-build (DACPAC) · unit-tests · aggregate job `pr-validation` = required check. Path filters per folder. Permissions `id-token: write`, `contents: read`. |
+| `feature-env` | push `feature/**`, `bugfix/**` (sqlconfig changes) + dispatch | `dev-feature` | DEV deploy identity | §5.4 |
+| `feature-cleanup` | `pull_request: closed` + nightly | `dev-feature` | DEV deploy identity | §5.4 |
+| `deploy-dev` | push main (ignore docs/**) | `dev` | DEV deploy identity | calls `deploy-env` with `env: dev` |
+| `deploy-env` (reusable) | `workflow_call` (input `env`) | the env | that env's identity | §5.10 order |
+| `release` | `workflow_dispatch`: `pr_list` (required), `release_id` (default `R<yyyy.MM.dd>`), `change_request` (default `auto`), `strict_dependencies` (default true) | `release-cut`, `qa`, `uat`, `prod` | per env + release-bot | jobs: `cut` → `build` → `deploy-qa` → `deploy-uat` → `change-gate` → `deploy-prod`; job summary shows the PR table at each stage; stories moved per stage |
+
+GitHub Environments: `dev-feature` (branches `feature/**`, `bugfix/**`), `dev` (main), `release-cut` (main),
+`qa`, `uat`, `prod` (branches `release/*`; required reviewers: qa-leads, uat-signoff, release-managers).
+
+### 5.7 Release mechanism (cherry-pick by PR)
+
+Implemented in Appendix A (tested). Behaviour:
+1. Parse `pr_list` (comma/space separated). Reject empty or duplicate IDs.
+2. Baseline = newest `prod/*` tag (or `--baseline` for the very first release).
+3. For each PR, the provider returns: merge commit (must be a single-parent squash commit on main's first-parent history),
+   status merged/completed, linked work items, files changed, and position in main's history.
+   Fail if not merged, not squash, no work item, or already in production. "Already in production" means the commit is an
+   ancestor of the baseline, or it appears in the baseline's `(cherry picked from commit <sha>)` trailers.
+4. Sort by merge order on main (typed order is ignored).
+5. Dependency check: warn (or fail with `--strict-deps`) when a selected PR touches files changed by an **earlier, unreleased,
+   unselected** PR.
+6. `git checkout -B release/<id> <baseline>`, then `git cherry-pick -x <commit>` per PR. On conflict: abort cleanly,
+   exit 2, and name the likely missing predecessor PRs.
+7. Write and commit `releases/<id>/manifest.json`, then optionally push.
+8. Exit codes: 0 ok · 1 gate failure · 2 conflict · 3 usage/config error. Under GitHub Actions, write outputs to `$GITHUB_OUTPUT`
+   (Appendix A writes Azure DevOps `##vso` lines; replace them).
+
+**GitHub provider (to add in step 4.2).** `GET /repos/{o}/{r}/pulls/{n}` must have `merged == true`, `base.ref == "main"`;
+use `merge_commit_sha`. Work items come from `AB#(\d+)` in the title and body. Files come from `GET …/pulls/{n}/files` or `git show`.
+GitHub's default squash title is `<title> (#<n>)`, so the offline git provider should also parse `\(#(\d+)\)$`
+on the first line, with `AB#` in the body.
+
+Manifest schema:
+```json
+{ "release_id": "R2026.11.01", "branch": "release/R2026.11.01",
+  "baseline": {"ref": "prod/R2026.10.15", "sha": "<sha>"},
+  "created_at": "<iso>", "created_by": "<user>",
+  "pr_ids": [1234, 1240], "work_items": [5678, 5690],
+  "pull_requests": [{"id":1234,"title":"…","merge_commit":"<sha>","squash":true,"work_items":[5678],"files":["…"],"main_position":12,"cherry_sha":"<sha>"}],
+  "dependency_warnings": [{"pr":1245,"depends_on_unselected_pr":1234,"title":"…","files":["…"]}],
+  "servicenow": {"change_request": null, "state": null}, "promotions": [] }
+```
+
+### 5.8 ServiceNow gate
+
+Implemented in Appendix C. The CR description carries `Release-Id: <id>` and `Release-PRs: 1234, 1240`
+(or the custom field `u_release_prs`). `--cr auto` finds the open CR by Release-Id.
+- `check`: approval = approved; state ∈ {Scheduled (-2), Implement (-1)}; now within start/end; CR PRs == manifest PRs.
+- `start`: state → Implement, work note with the run URL.
+- `close`: success → state Review (0), close code successful, evidence note; failure → work note only.
+Credentials: `SNOW_INSTANCE`, `SNOW_USER`, `SNOW_PASSWORD` (or `SNOW_TOKEN`) as `prod` environment secrets.
+Replace `##vso` lines with GitHub Actions equivalents (`::error::`, `$GITHUB_OUTPUT`).
+
+### 5.9 Azure Boards
+
+- The Azure Boards app connects the project to the repo; `AB#<id>` links PRs and commits.
+- The release workflow moves stories: after QA deploy → state for "Ready for QA"; after UAT → "Ready for UAT";
+  after PROD → "Closed" plus tag `Released-<id>`. Use the real state names from Phase 2.
+  Use `az boards work-item update` with `AZURE_DEVOPS_EXT_PAT` set to the managed identity's token for resource `499b84ac-1321-427f-aa17-267ca6975798`.
+
+### 5.10 Deployment order (every environment, from the one build artifact)
+
+1. **Azure SQL config DB**: `sqlpackage /Action:Publish` DACPAC with env SQLCMD values, `/p:BlockOnPossibleDataLoss=true`.
+2. **Unity Catalog** DDL, if not managed by the bundle.
+3. **Databricks**: `databricks bundle deploy -t <env>` (qa/uat/prod = `mode: production`, `run_as` the env's service principal,
+   `permissions` granting the factory MI `CAN_MANAGE_RUN`).
+4. **ADF**: export ARM (`npm run build export …` on the build job) → `PrePostDeploymentScript.Ver2.ps1 -predeployment $true`
+   (stop triggers) → ARM deployment, incremental, `arm-parameters/<env>.json` → script with `-predeployment $false -deleteDeployment $true`
+   (clean up deleted resources, start triggers).
+After PROD succeeds, tag `prod/<id>` on `release/<id>`. Rollback = redeploy the previous `prod/*` artifact (ARM is incremental and
+config MERGEs are idempotent; destructive SQL needs a backout script attached to the CR).
+
+### 5.11 Naming conventions (adjust to real names found in Phase 2)
+
+| Item | Pattern |
+|---|---|
+| Feature config DB | `sqldb-etlcfg-ft-<storyId>` |
+| Feature elastic pool | `pool-etlcfg-feature` (DEV SQL server) |
+| Release id / branch / tag | `R<yyyy.MM.dd>[.n]` · `release/<id>` · `prod/<id>` |
+| GitHub environments | `dev-feature`, `dev`, `release-cut`, `qa`, `uat`, `prod` |
+| ADF objects | `pl_`, `ds_`, `ls_`, `tr_` prefixes |
+| PR body lines | `AB#<id>`, `Feature-Test-Run: <ADF run id>` |
+| CR lines | `Release-Id: <id>`, `Release-PRs: <comma list>` |
+
+### 5.12 Access requirements (checklist for Phase 3)
+
+Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release, P3 = before the first PROD release.

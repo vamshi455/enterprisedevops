@@ -1,5 +1,9 @@
 # Handing this work to the local agent (VS Code + GitHub Copilot)
 
+> **Use [`HANDOFF.md`](../HANDOFF.md) for your local agent.** It is a single self-contained file: the full architecture, specs,
+> access checklist, reference code and Copilot prompts, with no repo clone needed. Save it as `PDX_Projects/devops-cicd/HANDOFF.md`
+> and tell the agent: *Read HANDOFF.md completely. Then do Phase 1 only and stop for my review.*
+
 This repository defines the target architecture for the Shell Data Platform GitHub Actions CI/CD process. The local agent is not inventing a new process; it is validating the real environment, documenting the facts, and implementing against this design.
 
 ## Architecture summary to implement
