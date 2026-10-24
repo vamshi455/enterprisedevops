@@ -58,13 +58,15 @@ out.append("""
 | D-17 | **No approval gate for QA**: the release deploys to QA automatically after the cut. Gates renumbered 0–5 | QA environment is for testing; approvals start at UAT |
 | D-18 | Gate 1 checks fixed as the 10 items in §5.3, including ADF API verification that the feature-test run succeeded | Explicit, enforceable definition of a reviewable PR |
 | D-19 | GitHub org is on **GitHub Enterprise** (OQ-07 answered) | Environment approvals available for UAT and PROD |
+| D-20 | **Developers can cut a release** for their own PRs; not restricted to release managers | Empower developers; the queue prevents collisions |
+| D-21 | **Release queue**: one release in progress at a time (cut → PROD tag or dropped); a new cut is refused, not queued; every cut starts from the latest `prod/*` tag (§5.7a) | One QA environment; prevents QA overwrites and PROD going backwards |
 
 ### 5.15 Things that are easy to get wrong
 
 - Federated credentials are **not supported on system-assigned managed identities**. If the identities the team wants to reuse
   are system-assigned (e.g. a factory's own identity), new user-assigned identities are needed (max 20 federated credentials each).
 - GitHub Environment required reviewers on private/internal repos need GitHub Enterprise. **Confirmed: the org is on GitHub Enterprise**, so the UAT and PROD approvals work.
-- **QA has no approval gate.** Every release cut deploys to QA immediately, replacing whatever is there. Coordinate cuts with the QA team so a release under test is not overwritten.
+- **QA has no approval gate.** A release deploys to QA immediately after its cut. The release queue (§5.7a) guarantees only one release is in QA at a time, so a release under test is never overwritten. A developer whose cut is refused must wait until the in-progress release ships or is dropped.
 - If SQL/Databricks/ADF use private endpoints, GitHub-hosted runners cannot reach them. Use self-hosted runners in the VNet
   (or GitHub-hosted runners with Azure private networking).
 - ADF ARM deployments are incremental: deleted objects stay until the post-deployment script removes them.

@@ -1,6 +1,6 @@
 # Shell Data Platform CI/CD: Handoff for the Local Coding Agent
 
-Version 1.2 · 24 Oct 2026 · Owner: Vamshi Singam (lead)
+Version 1.3 · 24 Oct 2026 · Owner: Vamshi Singam (lead)
 
 This file is **self-contained**. It holds the full context, target architecture, specifications, conventions,
 access requirements and reference code. No other repository or document is needed.
@@ -160,7 +160,7 @@ Stop. Report the answers, the top 5 risks, and anything you could not access.
 | 4.3 PR validation | `.github/workflows/pr-validation.yml` per §5.6; `docs/branch-protection.md` with the ruleset to request | Workflow green on a test PR; fails without AB# or Feature-Test-Run |
 | 4.4 Feature environment | `feature-env.yml`, `feature-cleanup.yml`; ADF `configDb` parameterisation (§5.4); `docs/feature-testing.md` | One branch gets its own DB; ADF debug against it succeeds; DB dropped after PR close |
 | 4.5 Deploy DEV | reusable `deploy-env.yml` + `deploy-dev.yml` (§5.6, §5.10) | Merge to main deploys DEV in the right order |
-| 4.6 Release | `release.yml` with the `pr_list` input (§5.6–5.9); port Appendix C | Dry-run (`plan`) correct; a real release of one PR reaches QA |
+| 4.6 Release | `release.yml` with the `pr_list` input and the release queue (§5.6–5.9, §5.7a); `drop-release.yml`; port Appendix C | Dry-run (`plan`) correct; a real release of one PR reaches QA |
 | 4.7 Pilot | One real story end-to-end; `pilot/PILOT_REPORT.md` | Story reaches QA (and UAT if approvers are available) through the new path |
 
 ---
@@ -224,7 +224,7 @@ shell-data-platform/
 | 0 Feature test | Before PR | Branch tested end-to-end: ADF debug against the branch's own config DB and the developer's bundle. Evidence = the ADF debug **run ID** in the PR | `feature-env` workflow + PR check |
 | 1 PR → main | Every PR | See "Gate 1 checks" below | Ruleset on `main` + `pr-validation` |
 | — | Merge to main | Deploys DEV (integration check, not the first test) | `deploy-dev` |
-| 2 Release cut | Manual | Listed PRs merged, squash, linked, not in prod; ordered by merge; cherry-picked onto last `prod/*` tag; dependency/conflict check | `release` → `build_release.py` |
+| 2 Release cut | Manual, **any developer** for their own PRs | **Release queue: refused if another release is in progress** (§5.7a); listed PRs merged, squash, linked, not in prod; ordered by merge; cherry-picked onto the latest `prod/*` tag; dependency/conflict check | `release` → `build_release.py` |
 | — | After cut | **Deploys to QA automatically, no approval** (decision D-17) | `release` → `deploy-env` |
 | 3 UAT | After QA | QA sign-off; `uat` environment approval (QA lead/team) | GitHub Environment |
 | 4 Change | Before PROD | CR approved, Scheduled/Implement, inside window, CR PR list == manifest | `cr_gate.py check` |
@@ -247,8 +247,10 @@ run exists, **succeeded**, and is recent (debug runs are kept only for a limited
 9. **Rollback note** for any config or schema change (`Rollback: …`).
 10. Branch **up to date with main**, all conversations resolved, then **squash merge only**; no force-push.
 
-**Gate 2 proposals (not yet confirmed; ask before implementing):** check that every listed PR has a recorded feature test, and
-restrict who can start the cut to the release managers (e.g. required reviewers on the `release-cut` environment).
+**Gate 2: who can cut.** Developers are empowered to cut a release for their own PRs; it is **not** restricted to release managers
+(decision D-20). The release queue (§5.7a) prevents parallel releases from colliding.
+
+**Gate 2 proposal (not yet confirmed; ask before implementing):** check that every listed PR has a recorded feature test.
 
 Branch names: `feature/AB#<id>-<desc>`, `bugfix/AB#<id>-<desc>`, `hotfix/AB#<id>-<desc>` (branched from the latest `prod/*` tag,
 PR into main, then released alone with an emergency CR). `release/<id>` and `prod/<id>` are created only by the release-bot app.
@@ -318,7 +320,8 @@ record the choice in `DECISIONS.md`. Examples are in Appendix D.
 | `feature-cleanup` | `pull_request: closed` + nightly | `dev-feature` | DEV deploy identity | §5.4 |
 | `deploy-dev` | push main (ignore docs/**) | `dev` | DEV deploy identity | calls `deploy-env` with `env: dev` |
 | `deploy-env` (reusable) | `workflow_call` (input `env`) | the env | that env's identity | §5.10 order |
-| `release` | `workflow_dispatch`: `pr_list` (required), `release_id` (default `R<yyyy.MM.dd>`), `change_request` (default `auto`), `strict_dependencies` (default true) | `release-cut`, `qa`, `uat`, `prod` | per env + release-bot | jobs: `cut` → `build` → `deploy-qa` → `deploy-uat` → `change-gate` → `deploy-prod`; job summary shows the PR table at each stage; stories moved per stage |
+| `drop-release` | `workflow_dispatch`: `release_id`, `reason` | `release-cut` | release-bot | tag `dropped/<id>`, delete `release/<id>`, comment on stories, free the queue (§5.7a) |
+| `release` | `workflow_dispatch`: `pr_list` (required), `release_id` (default `R<yyyy.MM.dd>`), `change_request` (default `auto`), `strict_dependencies` (default true) | `release-cut`, `qa`, `uat`, `prod` | per env + release-bot | queue check (§5.7a), then jobs: `cut` → `build` → `deploy-qa` → `deploy-uat` → `change-gate` → `deploy-prod`; job summary shows the PR table at each stage; stories moved per stage |
 
 GitHub Environments: `dev-feature` (branches `feature/**`, `bugfix/**`), `dev` (main), `release-cut` (main),
 `qa`, `uat`, `prod` (branches `release/*`). Required reviewers: **none on `qa`** (QA deploys automatically after the cut), `uat` = QA sign-off group, `prod` = release managers.
@@ -356,6 +359,25 @@ Manifest schema:
   "dependency_warnings": [{"pr":1245,"depends_on_unselected_pr":1234,"title":"…","files":["…"]}],
   "servicenow": {"change_request": null, "state": null}, "promotions": [] }
 ```
+
+### 5.7a Release queue (decision D-21): one release in progress at a time
+
+Rule, stated explicitly:
+1. A release is **in progress** from the moment it is cut until it is **tagged in PROD** (`prod/<id>`) or **dropped**.
+2. **If a release is in progress, a new cut is refused**, with a message naming the in-progress release, its PRs and who started it.
+   The developer runs the cut again after that release ships or is dropped. Cuts are refused, never left waiting: GitHub keeps only
+   one pending run per concurrency group and cancels older pending runs, so silent waiting would lose people's requests.
+3. **Every cut starts from the latest `prod/*` tag**, so PROD never goes backwards.
+4. Safety net: the UAT and PROD deploy jobs stop if the release's baseline is no longer the latest `prod/*` tag.
+
+Implementation:
+- The `cut` job runs under `concurrency: { group: release-cut, cancel-in-progress: false }`, so two cuts started at the same moment run
+  one after the other; the second then finds the first in progress and is refused.
+- "In progress" = a `release/<id>` branch exists with no matching `prod/<id>` tag and no `dropped/<id>` tag.
+- **Dropping** a release (e.g. a story failed QA or UAT): a `drop-release` workflow (`workflow_dispatch`, input `release_id`, reason)
+  pushes tag `dropped/<id>` via the release-bot app, deletes `release/<id>`, comments on the stories, and frees the queue.
+  The PRs that passed are then cut again in a new release without the failed PR.
+- Because only one release exists at a time, QA is never overwritten by a second release.
 
 ### 5.8 ServiceNow gate
 
@@ -411,8 +433,8 @@ Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release
 | GH-02 | GitHub teams: developers, tech-leads, release-managers, qa-leads, uat-signoff | — | Create or map teams (ideally synced from Entra groups); repo roles: developers = Write, tech-leads = Maintain, release-managers = Maintain | Drives CODEOWNERS review and environment approvers | P1 |
 | GH-03 | Repo settings | — | Allow squash merge only (disable merge commits and rebase merge); auto-delete head branches | One PR = one commit on main, which makes releases selectable by PR number | P1 |
 | GH-04 | Ruleset on main | — | Require PR; 1 approval from CODEOWNERS (tech-leads); dismiss stale approvals; require status check 'pr-validation'; require conversation resolution; block force-push and deletion; no bypass except org admins | Gate 1: only reviewed, tested PRs reach main | P1 |
-| GH-05 | Ruleset on release/* branches and prod/* tags | — | Restrict create/update/delete; bypass list = release-bot GitHub App only | Nobody hand-edits a release branch or moves a production tag | P2 |
-| GH-06 | GitHub App 'shell-data-release-bot' | — | Create app (Contents: read & write, Pull requests: read, Metadata: read), install on the repo only; give its App ID and private key to the lead for the 'release-cut' environment secret | Cuts release/<id> branches and pushes prod/<id> tags past the ruleset in GH-05 | P2 |
+| GH-05 | Ruleset on release/* branches and prod/*, dropped/* tags | — | Restrict create/update/delete; bypass list = release-bot GitHub App only | Nobody hand-edits a release branch or moves a production tag | P2 |
+| GH-06 | GitHub App 'shell-data-release-bot' | — | Create app (Contents: read & write, Pull requests: read, Metadata: read), install on the repo only; give its App ID and private key to the lead for the 'release-cut' environment secret | Cuts release/<id> branches and pushes prod/<id> and dropped/<id> tags past the ruleset in GH-05 | P2 |
 | GH-07 | GitHub Actions policy | — | Enable Actions on the repo; allow actions: actions/*, azure/login, databricks/setup-cli, Azure/arm-deploy, Azure/sql-action (or allow 'verified creators') | Workflows for validation, feature environments and releases | P1 |
 | GH-08 | Workflow permissions / OIDC | — | Default GITHUB_TOKEN = read; workflows may request id-token: write (OIDC). Confirm no org policy blocks OIDC | Passwordless sign-in to Azure with the existing managed identities | P1 |
 | GH-09 | GitHub Environments | DEV, QA, UAT, PROD | Create environments: dev-feature, dev, release-cut, qa, uat, prod. Required reviewers: none on qa (auto-deploy after the cut), uat = QA sign-off group, prod = release-managers. Deployment branches: dev-feature = feature/**, bugfix/**; dev = main; release-cut = main; qa/uat/prod = release/* _(Note: Org is on GitHub Enterprise (confirmed))_ | UAT (Gate 3) and PROD (Gate 5) are environment approvals; QA deploys without approval | P1 |
@@ -540,13 +562,15 @@ Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release
 | D-17 | **No approval gate for QA**: the release deploys to QA automatically after the cut. Gates renumbered 0–5 | QA environment is for testing; approvals start at UAT |
 | D-18 | Gate 1 checks fixed as the 10 items in §5.3, including ADF API verification that the feature-test run succeeded | Explicit, enforceable definition of a reviewable PR |
 | D-19 | GitHub org is on **GitHub Enterprise** (OQ-07 answered) | Environment approvals available for UAT and PROD |
+| D-20 | **Developers can cut a release** for their own PRs; not restricted to release managers | Empower developers; the queue prevents collisions |
+| D-21 | **Release queue**: one release in progress at a time (cut → PROD tag or dropped); a new cut is refused, not queued; every cut starts from the latest `prod/*` tag (§5.7a) | One QA environment; prevents QA overwrites and PROD going backwards |
 
 ### 5.15 Things that are easy to get wrong
 
 - Federated credentials are **not supported on system-assigned managed identities**. If the identities the team wants to reuse
   are system-assigned (e.g. a factory's own identity), new user-assigned identities are needed (max 20 federated credentials each).
 - GitHub Environment required reviewers on private/internal repos need GitHub Enterprise. **Confirmed: the org is on GitHub Enterprise**, so the UAT and PROD approvals work.
-- **QA has no approval gate.** Every release cut deploys to QA immediately, replacing whatever is there. Coordinate cuts with the QA team so a release under test is not overwritten.
+- **QA has no approval gate.** A release deploys to QA immediately after its cut. The release queue (§5.7a) guarantees only one release is in QA at a time, so a release under test is never overwritten. A developer whose cut is refused must wait until the in-progress release ships or is dropped.
 - If SQL/Databricks/ADF use private endpoints, GitHub-hosted runners cannot reach them. Use self-hosted runners in the VNet
   (or GitHub-hosted runners with Azure private networking).
 - ADF ARM deployments are incremental: deleted objects stay until the post-deployment script removes them.

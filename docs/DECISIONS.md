@@ -25,12 +25,21 @@ Decision log for the Shell data platform CI/CD process. The full context is in [
 | D-17 | **No approval gate for QA**: the release deploys to QA automatically after the cut. Gates renumbered 0–5 | QA environment is for testing; approvals start at UAT |
 | D-18 | Gate 1 checks fixed as the 10 items in §5.3, including ADF API verification that the feature-test run succeeded | Explicit, enforceable definition of a reviewable PR |
 | D-19 | GitHub org is on **GitHub Enterprise** (OQ-07 answered) | Environment approvals available for UAT and PROD |
+| D-20 | **Developers can cut a release** for their own PRs; not restricted to release managers | Empower developers; the queue prevents collisions |
+| D-21 | **Release queue**: one release in progress at a time (cut → PROD tag or dropped); a new cut is refused, not queued; every cut starts from the latest `prod/*` tag (§5.7a) | One QA environment; prevents QA overwrites and PROD going backwards |
 
 ## Notes on recent decisions
 
+- **D-20 / D-21 Developer cuts + release queue (24 Oct 2026).** Any developer can cut a release for their own PRs. Only one
+  release can be in progress (from cut until tagged in PROD or dropped). A new cut while one is in progress is **refused** with a
+  message naming that release; the developer re-runs after it ships or is dropped. Every cut starts from the latest PROD tag.
+  Dropping uses a `drop-release` workflow (tag `dropped/<id>`). Rejected alternatives: one shared open release that developers add
+  to (more complex), and a QA environment per release (too costly).
+- **D-17 update:** with the queue, QA's auto-deploy can no longer overwrite a release under test.
+
 - **D-17 No QA approval gate (24 Oct 2026).** A release deploys to QA automatically right after the cut. Gates are now
-  0 Feature test · 1 PR → main · 2 Release cut · 3 UAT (QA sign-off) · 4 ServiceNow CR · 5 PROD. Because QA has no gate,
-  a new cut replaces whatever is in QA, so coordinate cuts with the QA team.
+  0 Feature test · 1 PR → main · 2 Release cut · 3 UAT (QA sign-off) · 4 ServiceNow CR · 5 PROD. The release queue (D-21)
+  keeps a second release from overwriting QA.
 - **D-18 Gate 1 checks (24 Oct 2026).** Ten required checks (HANDOFF §5.3), including ADF API verification that the
   `Feature-Test-Run` debug run succeeded, a secrets/hardcoded-values scan, and `Release-Note`, `Depends-On` and `Rollback` lines.
 - **D-19 GitHub Enterprise confirmed (24 Oct 2026).** UAT and PROD environment approvals are available.
