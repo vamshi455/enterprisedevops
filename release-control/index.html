@@ -1,0 +1,764 @@
+<title>Release Control</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: control-room console. Sticky header (role + queue status) → gate rail → tabbed work area (main column) + activity log (side column). */
+:root{
+  --bg:#f1f4f6; --surface:#ffffff; --sunk:#e7ecf0; --ink:#14202b; --muted:#566473; --line:#d4dbe2;
+  --accent:#0d6970; --accent-ink:#ffffff; --accent-soft:#dff0f0;
+  --ok:#2a7a4e; --ok-bg:#e1f2e7; --warn:#a46510; --warn-bg:#fbefd9; --bad:#b53131; --bad-bg:#f8e2e2; --info:#2f5f9e; --info-bg:#e3ecf8;
+  --adf:#2563a8; --dbx:#b5541c; --uc:#6b45b8; --cfg:#0f7a5a;
+  --log-bg:#17212b; --log-ink:#d6dfe8; --log-dim:#7f8d9b;
+  --f-display:"Familjen Grotesk","Segoe UI",system-ui,sans-serif;
+  --f-body:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e141a; --surface:#151f29; --sunk:#1c2834; --ink:#e3eaf1; --muted:#93a2b1; --line:#2a3744;
+  --accent:#4cb2b9; --accent-ink:#06181a; --accent-soft:#16343a;
+  --ok:#5cc28a; --ok-bg:#163223; --warn:#e2a94b; --warn-bg:#352914; --bad:#f07979; --bad-bg:#3a1b1d; --info:#7fb0ef; --info-bg:#182a40;
+  --adf:#6aa6ec; --dbx:#ee8a52; --uc:#a88bf0; --cfg:#4fcf9f;
+  --log-bg:#0a0f14; --log-ink:#d6dfe8; --log-dim:#6e7c8a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e141a; --surface:#151f29; --sunk:#1c2834; --ink:#e3eaf1; --muted:#93a2b1; --line:#2a3744;
+  --accent:#4cb2b9; --accent-ink:#06181a; --accent-soft:#16343a;
+  --ok:#5cc28a; --ok-bg:#163223; --warn:#e2a94b; --warn-bg:#352914; --bad:#f07979; --bad-bg:#3a1b1d; --info:#7fb0ef; --info-bg:#182a40;
+  --adf:#6aa6ec; --dbx:#ee8a52; --uc:#a88bf0; --cfg:#4fcf9f;
+  --log-bg:#0a0f14; --log-ink:#d6dfe8; --log-dim:#6e7c8a; color-scheme:dark}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 40px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+h1,h2,h3{font-family:var(--f-display);margin:0;line-height:1.15;text-wrap:balance}
+h1{font-size:22px;font-weight:700} h2{font-size:18px;font-weight:700} h3{font-size:14.5px;font-weight:700}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+button,select,input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1320px;margin:0 auto;display:grid;gap:16px}
+.wrap>*{min-width:0}
+
+/* header */
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line);
+  margin-inline:calc(-1 * max(16px,env(safe-area-inset-left,0px)));padding:12px max(16px,env(safe-area-inset-left,0px))}
+.top-in{max-width:1320px;margin:0 auto;display:flex;gap:14px 22px;align-items:center;flex-wrap:wrap}
+.brand{display:flex;flex-direction:column;gap:2px;margin-right:auto}
+.brand .eb{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.actor{display:flex;align-items:center;gap:8px}
+.actor label{font-size:12.5px;color:var(--muted);font-weight:600}
+select,input[type=text],textarea{border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:7px 9px}
+.queue{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:999px;padding:5px 12px 5px 8px;font-size:13px;background:var(--bg)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--ok);flex:none}
+.queue.busy .dot{background:var(--warn)}
+.iconbtn{border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer}
+
+/* gate rail */
+.rail-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;margin-top:16px}
+.rail{display:grid;grid-template-columns:repeat(8,minmax(118px,1fr));min-width:980px}
+.stop{padding:12px 12px 14px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:6px;position:relative}
+.stop:last-child{border-right:0}
+.stop .g{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.08em;color:var(--muted)}
+.stop .n{font-family:var(--f-display);font-weight:700;font-size:14px}
+.stop .s{font-size:12px;color:var(--muted)}
+.stop .bar{height:4px;border-radius:2px;background:var(--sunk);margin-top:auto}
+.stop.done .bar{background:var(--ok)} .stop.now .bar{background:var(--warn)} .stop.fail .bar{background:var(--bad)}
+.stop.now{background:var(--warn-bg)}
+.chips{display:flex;flex-wrap:wrap;gap:4px;min-height:22px}
+
+/* tokens & pills */
+.tok{font-family:var(--f-mono);font-size:11.5px;font-weight:600;padding:1px 7px;border-radius:5px;color:#fff;white-space:nowrap;display:inline-block}
+.tok.ADF{background:var(--adf)} .tok.DBX{background:var(--dbx)} .tok.UC{background:var(--uc)} .tok.CFG{background:var(--cfg)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .tok{color:#0b1117}}
+:root[data-theme="dark"] .tok{color:#0b1117}
+.pill{font-size:11.5px;font-weight:700;padding:1px 8px;border-radius:999px;white-space:nowrap;display:inline-block}
+.pill.ok{background:var(--ok-bg);color:var(--ok)} .pill.warn{background:var(--warn-bg);color:var(--warn)} .pill.bad{background:var(--bad-bg);color:var(--bad)}
+.pill.n{background:var(--sunk);color:var(--muted)} .pill.info{background:var(--info-bg);color:var(--info)}
+
+/* main grid */
+.main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}
+@media (max-width:1040px){.main{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:14px;align-content:start;min-width:0}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:-4px -4px 0;padding:0 4px}
+.tab{border:0;background:transparent;padding:9px 12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+.tab .cnt{font-family:var(--f-mono);font-size:11px;background:var(--sunk);border-radius:8px;padding:0 6px;margin-left:4px;color:var(--muted)}
+.sub{color:var(--muted);font-size:13.5px;margin:0}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+.field{display:grid;gap:4px;flex:1 1 180px}
+.field label{font-size:12px;font-weight:700;color:var(--muted)}
+.field input[type=text],.field select,.field textarea{width:100%}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:14px}
+.check input{margin-top:3px}
+.btn{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent)}
+.btn.danger{background:transparent;color:var(--bad);border-color:var(--bad)}
+.btn:disabled{opacity:.42;cursor:not-allowed}
+.why{font-size:12.5px;color:var(--muted)}
+.card{border:1px solid var(--line);border-radius:8px;padding:12px;display:grid;gap:10px}
+.card.hl{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.card-h{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+
+table.t{width:100%;border-collapse:collapse;font-size:13.5px}
+.tbl{overflow-x:auto}
+table.t th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);text-align:left;font-weight:700;padding:6px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.t td{padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+table.t tr.dim td{color:var(--muted)}
+.files{font-family:var(--f-mono);font-size:11px;color:var(--muted);word-break:break-all}
+
+.checks{display:grid;gap:4px;margin:0;padding:0;list-style:none}
+.checks li{display:grid;grid-template-columns:22px 1fr;gap:6px;font-size:13.5px;align-items:start}
+.mk{font-family:var(--f-mono);font-weight:700;text-align:center;border-radius:4px;font-size:12px;line-height:20px}
+.mk.ok{background:var(--ok-bg);color:var(--ok)} .mk.bad{background:var(--bad-bg);color:var(--bad)} .mk.warn{background:var(--warn-bg);color:var(--warn)} .mk.n{background:var(--sunk);color:var(--muted)}
+
+.log{background:var(--log-bg);color:var(--log-ink);border-radius:8px;font-family:var(--f-mono);font-size:11.5px;line-height:1.55;padding:10px 12px;max-height:620px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.log .t{color:var(--log-dim)} .log .ok{color:#6fd39b} .log .warn{color:#f0bd5e} .log .err{color:#ff8c8c} .log .h{color:#7fd3d8;font-weight:600} .log .who{color:#c7b2ff}
+
+.narr{display:flex;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--accent);border-radius:10px;padding:10px 14px}
+.narr p{margin:0;flex:1;min-width:0}
+.narr .k{font-family:var(--f-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);white-space:nowrap}
+.scen{display:flex;flex-wrap:wrap;gap:6px}
+.chipbtn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer}
+.chipbtn:hover{border-color:var(--accent);color:var(--accent)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13.5px}
+.kv dt{color:var(--muted)} .kv dd{margin:0}
+pre.cr{background:var(--sunk);border-radius:8px;padding:10px 12px;font-family:var(--f-mono);font-size:12px;white-space:pre-wrap;margin:0}
+.gates-ref{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.gates-ref .card p{margin:0;font-size:13.5px;color:var(--muted)}
+.gates-ref .card .n{font-family:var(--f-mono);font-size:11px;color:var(--accent);letter-spacing:.08em}
+.empty{border:1px dashed var(--line);border-radius:8px;padding:14px;color:var(--muted);font-size:14px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand"><span class="eb">Shell data platform · ADF · Databricks · Azure SQL config</span><h1>Release Control</h1></div>
+    <div class="actor"><label for="actor">Acting as</label><select id="actor"></select></div>
+    <div class="queue" id="queue" role="status"><span class="dot"></span><span id="queueText">Queue free</span></div>
+    <button class="iconbtn" id="resetBtn" title="Reset to the starting data">Reset demo</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="rail-wrap"><div class="rail" id="rail"></div></div>
+
+  <div class="narr" id="narr" hidden role="status" aria-live="polite"><span class="k" id="narrK"></span><p id="narrT"></p><button class="btn ghost" id="narrStop">Stop</button></div>
+
+  <div class="main">
+    <section class="panel" aria-label="Work area">
+      <div class="tabs" role="tablist" id="tabs"></div>
+      <div id="view"></div>
+    </section>
+    <aside class="panel" aria-label="Activity">
+      <div class="card-h"><h2>Activity log</h2><span class="sub" id="logCount"></span></div>
+      <div class="log" id="log" role="log" aria-live="polite"></div>
+      <div>
+        <h3 style="margin-bottom:6px">Guided scenarios</h3>
+        <div class="scen" id="scen"></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+(() => {
+/* ================= data ================= */
+const USERS = {
+  priya:{name:"Priya", role:"dev", label:"Priya · Developer"},
+  ravi:{name:"Ravi", role:"dev", label:"Ravi · Developer"},
+  ana:{name:"Ana", role:"lead", label:"Ana · Tech lead"},
+  mei:{name:"Mei", role:"qa", label:"Mei · QA lead"},
+  tom:{name:"Tom", role:"biz", label:"Tom · Business owner"},
+  sam:{name:"Sam", role:"rm", label:"Sam · Release manager"},
+};
+const ROLE_NAME = {dev:"a developer", lead:"the tech lead", qa:"the QA lead", biz:"the business owner", rm:"a release manager"};
+const SPRINT = new Set([5678,5680,5690,5692,5695,5702,5710]);
+const RELEASE_IDS = ["R2026.11.01","R2026.11.08","R2026.11.15","R2026.11.22","R2026.11.29","R2026.12.06","R2026.12.13"];
+
+function seed(){
+  return {
+    actor:"priya", tab:"pipeline", relIdx:0, clock:0, prSeq:1256, runSeq:0,
+    prodTags:["R2026.10.15"],
+    prs:[
+      pr(1231,"ls_sap_hana linked service","ADF","priya",5671,["adf/linkedService/ls_sap_hana.json"],{released:"R2026.10.15"}),
+      pr(1234,"pl_ingest_sales pipeline + dataset","ADF","priya",5678,["adf/pipeline/pl_ingest_sales.json","adf/dataset/ds_landing_sales_csv.json"]),
+      pr(1236,"bronze.sales_raw table","UC","ravi",5680,["databricks/sql/V0002__sales_raw.sql"]),
+      pr(1238,"Retail margin notebook","DBX","ravi",5685,["databricks/src/nb_margin.py"]),
+      pr(1240,"Silver sales notebook + job","DBX","priya",5690,["databricks/src/nb_sales_silver.py","databricks/resources/jobs.yml"]),
+      pr(1242,"Config: TERMINAL_STOCK source row","CFG","ravi",5692,["sqlconfig/Data/sources/TERMINAL_STOCK.sql"]),
+      pr(1245,"pl_ingest_sales: copy parallelism","ADF","priya",5695,["adf/pipeline/pl_ingest_sales.json"]),
+      pr(1251,"gold.vw_sales_daily view","UC","ravi",5702,["databricks/sql/R__vw_sales_daily.sql"]),
+    ],
+    features:[
+      {id:"f1", branch:"feature/AB#5710-sap-sales", story:5710, author:"priya", comp:"CFG", title:"SAP sales source: pipeline + config row",
+       files:["adf/pipeline/pl_ingest_sap_sales.json","sqlconfig/Data/sources/SAP_SALES.sql"], stage:"branch", db:null, run:null, pr:null,
+       hardcoded:false, dependsOn:null, kind:"feature"},
+    ],
+    release:null, history:[], log:[],
+  };
+  function pr(id,title,comp,author,story,files,extra={}){
+    return Object.assign({id,title,comp,author,story,files,merged:true,released:null,labels:[],dependsOn:null,reverted:false,revertOf:null},extra);
+  }
+}
+let S = load() || seed();
+function save(){ try{ localStorage.setItem("release-control-v1", JSON.stringify(S)); }catch(e){} }
+function load(){ try{ const v=localStorage.getItem("release-control-v1"); return v?JSON.parse(v):null; }catch(e){ return null; } }
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const me = () => USERS[S.actor];
+const latestProd = () => S.prodTags[S.prodTags.length-1];
+const prById = id => S.prs.find(p=>p.id===id);
+const tick = () => { S.clock++; const m=9*60+S.clock*3; return `${String(Math.floor(m/60)%24).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`; };
+function L(msg, cls="", who=true){ S.log.push({t:tick(), who: who? me().name : "system", msg, cls}); if(S.log.length>400) S.log.shift(); }
+const tok = p => `<span class="tok ${p.comp}" title="${esc(p.title)}">${p.id}</span>`;
+const inProgress = () => S.release && !["prod","dropped"].includes(S.release.stage);
+
+/* ================= Gate 0 / 1: features & PRs ================= */
+function newBranch(kind, story, title, comp, files, dependsOn=null, revertOf=null){
+  const id="f"+(S.features.length+1)+"_"+Date.now()%1000;
+  const prefix = kind==="revert" ? "bugfix" : (kind==="fix" ? "bugfix" : "feature");
+  const slug = kind==="revert" ? `revert-${revertOf}` : title.toLowerCase().replace(/[^a-z0-9]+/g,"-").slice(0,24).replace(/-$/,"");
+  S.features.push({id, branch:`${prefix}/AB#${story}-${slug}`, story, author:S.actor, comp, title, files, stage:"branch", db:null, run:null, pr:null, hardcoded:false, dependsOn, revertOf, kind});
+  return id;
+}
+function feat(id){ return S.features.find(f=>f.id===id); }
+
+function pushBranch(f){
+  if(me().role!=="dev") return deny("dev");
+  const touchesCfg = f.files.some(x=>x.startsWith("sqlconfig/"));
+  f.db = touchesCfg ? `sqldb-etlcfg-ft-${f.story}` : null;
+  f.stage="pushed";
+  L(`push ${f.branch}`, "h");
+  if(f.db){ L(`feature-env: copy sqldb-etlcfg-dev → ${f.db}, publish branch DACPAC + config rows`, "ok", false); }
+  else L(`feature-env: no sqlconfig changes, no config DB copy needed`, "", false);
+  L(`databricks bundle deploy -t dev → [dev ${me().name.toLowerCase()}] jobs, schema dev_${me().name.toLowerCase()}`, "ok", false);
+}
+function debugRun(f){
+  if(me().role!=="dev") return deny("dev");
+  S.runSeq++;
+  f.run = `${(0x3f9c2a1e + S.runSeq*7919).toString(16)}-${(1000+S.runSeq).toString(16)}`;
+  f.stage="tested";
+  L(`ADF Debug on ${f.branch}${f.db?` with configDb = ${f.db}`:""}, output to …/_feature/${f.story}/`, "h");
+  L(`Run ${f.run}: Succeeded`, "ok", false);
+}
+function prChecks(f, form){
+  const ch=[];
+  const add=(ok,txt,warn=false)=>ch.push({s: ok?"ok":(warn?"warn":"bad"), txt});
+  add(!!form.desc.trim(), "Description follows the template");
+  add(/AB#\d+/.test(form.story), `Linked story (${form.story||"missing"})`);
+  add(!!f.run && form.run.trim()===f.run, form.run.trim()? (form.run.trim()===f.run? `Feature-Test-Run ${f.run} verified: Succeeded` : `Run ${form.run.trim()} not found in DEV factory`) : "Feature-Test-Run missing");
+  add(true, "Tech lead review required (CODEOWNERS) – pending");
+  add(true, "ADF validate · bundle validate · DACPAC build · tests · settings keys match");
+  add(!f.hardcoded, f.hardcoded? "Scan found a hardcoded server name (srv-sap-prod01)" : "No secrets or hardcoded environment values");
+  add(!!form.note.trim(), "Release-Note line");
+  add(!!form.dep.trim(), `Depends-On line (${form.dep.trim()||"missing"})`);
+  const cfg = f.files.some(x=>x.startsWith("sqlconfig/"));
+  add(!cfg || !!form.rollback.trim(), cfg? "Rollback note for config change" : "Rollback note (not required: no config/schema change)");
+  add(true, "Up to date with main · conversations resolved · squash only");
+  ch[3].s="n";
+  return ch;
+}
+function openPR(f, form){
+  if(me().role!=="dev") return deny("dev");
+  const ch=prChecks(f,form);
+  const failed=ch.filter(c=>c.s==="bad");
+  f.lastChecks=ch;
+  S.prSeq++; const n=S.prSeq;
+  f.pr={id:n, form, checks:ch, approvedBy:null};
+  f.stage = failed.length? "pr-failing" : "pr-open";
+  L(`Opened PR ${n}: ${f.title}`, "h");
+  if(failed.length) failed.forEach(c=>L(`pr-validation: ${c.txt}`,"err",false));
+  else L(`pr-validation: all automated checks green; waiting for tech lead`,"ok",false);
+}
+function fixPR(f){
+  if(me().role!=="dev") return deny("dev");
+  f.hardcoded=false;
+  f.pr.form.note = f.pr.form.note || "Adds change";
+  const ch=prChecks(f,f.pr.form); f.pr.checks=ch;
+  const failed=ch.filter(c=>c.s==="bad");
+  f.stage = failed.length? "pr-failing":"pr-open";
+  L(`Pushed fix to PR ${f.pr.id}: server name moved to settings/<env>.json`, "h");
+  L(failed.length? `pr-validation still failing` : `pr-validation: all automated checks green`, failed.length?"err":"ok", false);
+}
+function approvePR(f){
+  if(me().role!=="lead") return deny("lead");
+  if(f.author===S.actor){ L(`Cannot approve own PR`,"err"); return; }
+  f.pr.approvedBy=S.actor; f.stage="merged";
+  const p={id:f.pr.id, title:f.title, comp:f.comp, author:f.author, story:f.story, files:f.files, merged:true, released:null, labels:[],
+           dependsOn:f.dependsOn, reverted:false, revertOf:f.revertOf||null};
+  S.prs.push(p);
+  L(`Approved PR ${p.id} (CODEOWNER); squash merged to main`, "ok");
+  L(`deploy-dev: SQL config → UC → Databricks → ADF on DEV`, "ok", false);
+  if(f.db) L(`feature-cleanup: dropped ${f.db}`, "", false);
+  if(f.revertOf){
+    const o=prById(f.revertOf); o.reverted=true; o.labels=o.labels.filter(l=>!l.startsWith("failed"));
+    L(`PR ${o.id} reverted on main; label removed; it will never be released`, "warn", false);
+  }
+}
+
+/* ================= Gate 2: release cut ================= */
+function parseList(raw){ return raw.split(/[,\s]+/).filter(Boolean).map(Number); }
+function preview(raw){
+  const ids=parseList(raw), rows=[], warns=[], errs=[];
+  if(!ids.length) errs.push("PR list is empty");
+  const dup=ids.filter((x,i)=>ids.indexOf(x)!==i); if(dup.length) errs.push(`Duplicate PR ids: ${[...new Set(dup)].join(", ")}`);
+  for(const id of ids){
+    const p=prById(id);
+    const openF=S.features.find(f=>f.pr && f.pr.id===id && f.stage!=="merged");
+    if(!p){ rows.push({id, missing:true, note: openF? "PR is open, not merged (blocked at Gate 1)" : "No merged PR with this number"}); continue; }
+    rows.push({id, p});
+  }
+  return {ids, rows, warns, errs};
+}
+function evaluateCut(raw){
+  const pv=preview(raw), out={checks:[], sel:[], conflicts:[]};
+  const C=(s,txt)=>out.checks.push({s,txt});
+  C(inProgress()? "bad":"ok", inProgress()? `Release queue: ${S.release.id} is in progress (started by ${USERS[S.release.by].name}, PRs ${S.release.prs.join(", ")}). Cut refused` : "Release queue: no release in progress");
+  if(pv.errs.length){ pv.errs.forEach(e=>C("bad",e)); return out; }
+  const listed=new Set(pv.ids);
+  for(const r of pv.rows){
+    if(r.missing){ C("bad",`PR ${r.id}: ${r.note}`); continue; }
+    const p=r.p;
+    if(p.reverted){ C("bad",`PR ${p.id}: reverted on main; cannot be released`); continue; }
+    if(p.revertOf){ C("ok",`PR ${p.id}: revert of ${p.revertOf}`); }
+    if(p.released){ C("bad",`PR ${p.id}: already in PROD (prod/${p.released})`); continue; }
+    const failLab=p.labels.find(l=>l.startsWith("failed"));
+    if(failLab){
+      const fix=S.prs.find(q=>q.dependsOn===p.id && listed.has(q.id));
+      if(!fix){ C("bad",`PR ${p.id}: labelled ${failLab}; list its fix PR too`); continue; }
+      C("ok",`PR ${p.id}: labelled ${failLab}, fix PR ${fix.id} is listed`);
+    }
+    if(p.author!==S.actor) C("warn",`PR ${p.id}: authored by ${USERS[p.author].name}, not you (warning)`);
+    if(!SPRINT.has(p.story)) C("warn",`PR ${p.id}: story AB#${p.story} is not in the current sprint (warning)`);
+    out.sel.push(p);
+  }
+  if(out.checks.some(c=>c.s==="bad")) return out;
+  out.sel.sort((a,b)=>S.prs.indexOf(a)-S.prs.indexOf(b));
+  C("ok",`All PRs merged as squash commits, linked to stories, not in PROD`);
+  if(pv.ids.join()!==out.sel.map(p=>p.id).join()) C("ok",`Ordered by merge order: ${out.sel.map(p=>p.id).join(", ")}`);
+  const selIds=new Set(out.sel.map(p=>p.id));
+  const unrel=S.prs.filter(p=>!p.released && !p.reverted && !selIds.has(p.id));
+  for(const p of out.sel){
+    for(const c of unrel){
+      if(S.prs.indexOf(c)<S.prs.indexOf(p)){
+        const ov=p.files.filter(f=>c.files.includes(f));
+        if(ov.length) out.conflicts.push({p:p.id,c:c.id,files:ov});
+      }
+    }
+    if(p.dependsOn && !selIds.has(p.dependsOn) && !(prById(p.dependsOn)||{}).released) out.conflicts.push({p:p.id,c:p.dependsOn,files:["Depends-On"]});
+  }
+  if(out.conflicts.length) out.conflicts.forEach(x=>C("bad",`PR ${x.p} needs earlier PR ${x.c} (${x.files.join(", ")}). Add it or leave PR ${x.p} out`));
+  else C("ok",`Cherry-pick onto prod/${latestProd()}: clean, no missing dependencies`);
+  return out;
+}
+function doPreview(raw){
+  if(me().role!=="dev" && me().role!=="rm") return deny("dev");
+  S.preview={raw:raw.trim(), by:S.actor, ev:evaluateCut(raw)};
+  L(`release (confirm=false): preview of ${raw.trim()}`, "h");
+  const b=S.preview.ev.checks.filter(c=>c.s==="bad").length, w=S.preview.ev.checks.filter(c=>c.s==="warn").length;
+  L(b? `Preview: ${b} blocking problem(s)` : `Preview: ready to cut${w?`, ${w} warning(s)`:""}`, b?"err":(w?"warn":"ok"), false);
+}
+function doCut(raw, ack){
+  if(me().role!=="dev" && me().role!=="rm") return deny("dev");
+  const ev=evaluateCut(raw);
+  if(!S.preview || S.preview.raw!==raw.trim()){ L(`Cut refused: run the preview for exactly this list first`,"err"); return; }
+  const bad=ev.checks.filter(c=>c.s==="bad"), warn=ev.checks.filter(c=>c.s==="warn");
+  L(`release (confirm=true): ${raw.trim()}`, "h");
+  if(bad.length){ bad.forEach(c=>L(c.txt,"err",false)); L(`Cut refused. Nothing was cut or deployed.`,"err",false); return; }
+  if(warn.length && !ack){ L(`Cut needs the warnings acknowledged`,"warn"); return; }
+  const id=RELEASE_IDS[S.relIdx % RELEASE_IDS.length]+(S.relIdx>=RELEASE_IDS.length?".2":""); S.relIdx++;
+  S.release={id, prs:ev.sel.map(p=>p.id), by:S.actor, baseline:latestProd(), stage:"qa", uatBy:null, signoffBy:null, cr:null, crChecked:false, prodBy:null};
+  ev.sel.forEach(p=>L(`git cherry-pick -x <PR ${p.id} squash> onto prod/${S.release.baseline} ✓`,"ok",false));
+  L(`release/${id} + releases/${id}/manifest.json; build once (DACPAC · ARM · bundle)`, "ok", false);
+  L(`deploy QA (automatic, no approval): SQL config → UC → Databricks → ADF`, "ok", false);
+  L(`Stories ${storiesOf(S.release).map(s=>"AB#"+s).join(", ")} → In QA`, "", false);
+  S.preview=null; S.suggest=null; S.tab="promotion";
+}
+const storiesOf = r => [...new Set(r.prs.map(id=>prById(id).story))];
+
+/* ================= Promotion ================= */
+function approveUAT(){
+  if(me().role!=="qa") return deny("qa");
+  const r=S.release; if(r.stage!=="qa") return;
+  r.uatBy=S.actor; r.stage="uat";
+  L(`Approved deployment to uat (Review deployments). QA sign-off for ${r.id}`, "ok");
+  L(`deploy UAT (same build); stories → In UAT`, "ok", false);
+}
+function signoff(){
+  if(me().role!=="biz") return deny("biz");
+  const r=S.release; if(r.stage!=="uat") return;
+  r.signoffBy=S.actor; r.stage="awaiting-prod";
+  L(`Business sign-off recorded for ${r.id}`, "ok");
+}
+function failStories(ids, where){
+  const need = where==="qa" ? "qa" : "biz";
+  if(me().role!==need) return deny(need);
+  const r=S.release; if(!ids.length) return;
+  ids.forEach(id=>{ const p=prById(id); if(!p.labels.includes(`failed-${where}`)) p.labels.push(`failed-${where}`); });
+  L(`${where.toUpperCase()} failed PR(s) ${ids.join(", ")}`, "err");
+  dropRelease(`PR ${ids.join(", ")} failed ${where.toUpperCase()}`, true);
+  const keep=r.prs.filter(x=>!ids.includes(x));
+  L(`Next: re-cut the passing PRs (${keep.join(", ")||"none"}) from prod/${latestProd()}; the authors open fix PRs`, "warn", false);
+  S.suggest = keep.join(",");
+}
+function dropRelease(reason, auto=false){
+  const r=S.release; if(!r) return;
+  if(!auto && !(me().role==="rm" || S.actor===r.by)) { L(`Only the release manager or the person who cut ${r.id} can drop it`,"err"); return; }
+  r.stage="dropped"; r.dropReason=reason; S.history.push({...r});
+  L(`drop-release ${r.id}: tag dropped/${r.id}, release/${r.id} deleted, stories commented. Queue free`, "warn", !auto);
+  S.release=null;
+}
+function generateCR(r){
+  const ps=r.prs.map(prById);
+  return [
+    `Short description: Shell data platform release ${r.id}`,
+    `Release-Id: ${r.id}`,
+    `Release-PRs: ${r.prs.join(", ")}`,
+    `Stories: ${storiesOf(r).map(s=>"AB#"+s).join(", ")}`,
+    `Components: ${[...new Set(ps.map(p=>({ADF:"ADF",DBX:"Databricks",UC:"Unity Catalog",CFG:"Azure SQL config"})[p.comp]))].join(", ")}`,
+    `Release notes:`, ...ps.map(p=>`  - PR ${p.id}: ${p.title}`),
+    `Rollback: redeploy build of prod/${r.baseline}; config rows per PR rollback notes`,
+    `Evidence: QA run, UAT approval by ${r.uatBy?USERS[r.uatBy].name:"(pending)"}, business sign-off by ${r.signoffBy?USERS[r.signoffBy].name:"(pending)"}`,
+  ].join("\n");
+}
+function startProd(chg, checked){
+  if(me().role!=="rm") return deny("rm");
+  const r=S.release;
+  L(`deploy-prod ${r.id} with change_request=${chg||"(blank)"}, cr_checked=${checked}`, "h");
+  if(!/^CHG\d{7}$/.test(chg)){ L(`Refused: change_request must look like CHG0034567`,"err",false); return; }
+  if(!checked){ L(`Refused: confirm the CR is approved, in window, lists the same PRs and has business sign-off`,"err",false); return; }
+  if(r.stage!=="awaiting-prod"){ L(`Refused: ${r.id} has not passed UAT sign-off`,"err",false); return; }
+  if(r.baseline!==latestProd()){ L(`Refused: baseline prod/${r.baseline} is stale (latest is prod/${latestProd()}). Drop and re-cut`,"err",false); return; }
+  r.cr=chg; r.crChecked=true; r.stage="prod-pending";
+  L(`Waiting for prod environment approval (release managers)`, "warn", false);
+}
+function approveProd(){
+  if(me().role!=="rm") return deny("rm");
+  const r=S.release; if(r.stage!=="prod-pending") return;
+  r.prodBy=S.actor; r.stage="prod";
+  L(`Approved prod deployment for ${r.id} (${r.cr})`, "ok");
+  L(`deploy PROD: SQL config → UC → Databricks → ADF (same build)`, "ok", false);
+  r.prs.forEach(id=>{ const p=prById(id); p.released=r.id; p.labels=[]; });
+  S.prs.forEach(p=>{ if(p.labels.length && S.prs.some(q=>q.dependsOn===p.id && q.released===r.id)) p.labels=[]; });
+  S.prodTags.push(r.id);
+  L(`git tag prod/${r.id} (CR ${r.cr}); stories → Closed (Released-${r.id}); queue free`, "ok", false);
+  L(`Release manager: close ${r.cr} in ServiceNow by hand with this evidence`, "", false);
+  S.history.push({...r}); S.release=null;
+}
+function deny(role){ L(`This action needs ${ROLE_NAME[role]}. Switch "Acting as" to continue.`, "err"); render(); return false; }
+
+/* ================= rendering ================= */
+const TABS=[["pipeline","Pipeline"],["features","Gate 0–1 · Develop"],["cut","Gate 2 · Cut"],["promotion","QA → PROD"],["prs","main: PRs"],["process","Process & gates"]];
+
+function render(){
+  // actor select
+  $("#actor").innerHTML=Object.entries(USERS).map(([k,u])=>`<option value="${k}" ${k===S.actor?"selected":""}>${u.label}</option>`).join("");
+  // queue
+  const q=$("#queue"), busy=inProgress();
+  q.classList.toggle("busy",busy);
+  $("#queueText").textContent = busy ? `In progress: ${S.release.id} · ${stageName(S.release.stage)}` : `Queue free · PROD at prod/${latestProd()}`;
+  renderRail();
+  // tabs
+  const counts={features:S.features.filter(f=>f.stage!=="merged").length, prs:S.prs.filter(p=>!p.released&&!p.reverted).length};
+  $("#tabs").innerHTML=TABS.map(([k,l])=>`<button class="tab" role="tab" aria-selected="${S.tab===k}" data-tab="${k}">${l}${counts[k]!=null?`<span class="cnt">${counts[k]}</span>`:""}</button>`).join("");
+  ({pipeline:viewPipeline,features:viewFeatures,cut:viewCut,promotion:viewPromotion,prs:viewPRs,process:viewProcess})[S.tab]();
+  // log
+  $("#log").innerHTML=S.log.map(e=>`<div><span class="t">${e.t}</span> <span class="who">${esc(e.who)}</span> ${e.cls?`<span class="${e.cls}">`:""}${esc(e.msg)}${e.cls?"</span>":""}</div>`).join("") || '<span class="t">No activity yet.</span>';
+  $("#log").scrollTop=$("#log").scrollHeight;
+  $("#logCount").textContent=`${S.log.length} events`;
+  save();
+}
+const stageName = s => ({qa:"in QA", uat:"in UAT", "awaiting-prod":"awaiting CR + PROD", "prod-pending":"PROD approval pending", prod:"in PROD", dropped:"dropped"})[s]||s;
+
+function renderRail(){
+  const r=S.release, active=S.features.filter(f=>f.stage!=="merged");
+  const unrel=S.prs.filter(p=>!p.released && !p.reverted);
+  const st=(cond)=>cond;
+  const stops=[
+    {g:"GATE 0", n:"Feature test", s:`${active.filter(f=>["branch","pushed"].includes(f.stage)).length} branch(es) building`, chips:active.filter(f=>["branch","pushed","tested"].includes(f.stage)).map(f=>`<span class="pill info">AB#${f.story}</span>`), cls: active.some(f=>f.stage==="tested")?"done":""},
+    {g:"GATE 1", n:"Pull request", s:`${active.filter(f=>f.pr).length} open PR(s)`, chips:active.filter(f=>f.pr).map(f=>`<span class="pill ${f.stage==="pr-failing"?"bad":"warn"}">#${f.pr.id}</span>`), cls: active.some(f=>f.stage==="pr-failing")?"fail":(active.some(f=>f.pr)?"now":"")},
+    {g:"MAIN → DEV", n:"Integrated", s:`${unrel.length} PR(s) not yet released`, chips:unrel.filter(p=>!r||!r.prs.includes(p.id)).map(tok), cls:""},
+    {g:"GATE 2", n:"Release cut", s: r? `release/${r.id}` : "no release in progress", chips: r? r.prs.map(id=>tok(prById(id))):[], cls: r?"done":""},
+    {g:"AUTOMATIC", n:"QA", s:"deploys on cut", chips: r&&r.stage==="qa"? r.prs.map(id=>tok(prById(id))):[], cls: r? (r.stage==="qa"?"now":"done"):""},
+    {g:"GATE 3", n:"UAT", s:"QA lead approves", chips: r&&r.stage==="uat"? r.prs.map(id=>tok(prById(id))):[], cls: r? (r.stage==="uat"?"now":(["awaiting-prod","prod-pending"].includes(r.stage)?"done":"")):""},
+    {g:"GATE 4", n:"Change request", s:"manual check", chips: r&&r.stage==="awaiting-prod"? [`<span class="pill warn">CR</span>`]:[], cls: r? (r.stage==="awaiting-prod"?"now":(r.stage==="prod-pending"?"done":"")):""},
+    {g:"GATE 5", n:"PROD", s:`prod/${latestProd()}`, chips: r&&r.stage==="prod-pending"? [`<span class="pill warn">approval</span>`] : S.prs.filter(p=>p.released===latestProd()).map(tok), cls: r&&r.stage==="prod-pending"?"now":""},
+  ];
+  $("#rail").innerHTML=stops.map(x=>`<div class="stop ${x.cls}"><span class="g">${x.g}</span><span class="n">${x.n}</span><span class="s">${esc(x.s)}</span><div class="chips">${x.chips.join("")}</div><div class="bar"></div></div>`).join("");
+}
+
+function nextAction(){
+  const r=S.release;
+  const f=S.features.find(f=>f.stage!=="merged");
+  if(r){
+    if(r.stage==="qa") return ["Mei · QA lead","QA tests, then approves the move to UAT (or fails a story).","promotion"];
+    if(r.stage==="uat") return ["Tom · Business owner","Business users test in UAT; the business owner signs off (or fails a story).","promotion"];
+    if(r.stage==="awaiting-prod") return ["Sam · Release manager","Raise the CR by hand from the generated text, check it, then run deploy-prod with the CHG number.","promotion"];
+    if(r.stage==="prod-pending") return ["Sam · Release manager","Approve the prod environment to deploy.","promotion"];
+  }
+  if(f){
+    if(f.stage==="branch") return [USERS[f.author].label,`Push ${f.branch} to get a feature config DB and deploy the bundle.`,"features"];
+    if(f.stage==="pushed") return [USERS[f.author].label,`Run the ADF debug against the branch's own config DB.`,"features"];
+    if(f.stage==="tested") return [USERS[f.author].label,`Open the PR with the run ID and notes.`,"features"];
+    if(f.stage==="pr-failing") return [USERS[f.author].label,`Fix the failing PR checks.`,"features"];
+    if(f.stage==="pr-open") return ["Ana · Tech lead",`Review and approve PR ${f.pr.id}.`,"features"];
+  }
+  return ["Any developer","Preview and cut a release from merged PRs.","cut"];
+}
+
+function viewPipeline(){
+  const [who,what,tab]=nextAction(), r=S.release;
+  $("#view").innerHTML=`
+  <div class="card hl"><div class="card-h"><h3>Next step</h3><span class="pill info">${esc(who)}</span></div><p class="sub" style="color:var(--ink)">${esc(what)}</p>
+  <div class="row"><button class="btn" data-go="${tab}">Go there</button></div></div>
+  <div class="card"><div class="card-h"><h3>Release in progress</h3>${r?`<span class="pill warn">${stageName(r.stage)}</span>`:'<span class="pill ok">queue free</span>'}</div>
+   ${r? `<dl class="kv"><dt>Release</dt><dd class="mono">release/${r.id}</dd><dt>Cut by</dt><dd>${USERS[r.by].name}</dd><dt>Baseline</dt><dd class="mono">prod/${r.baseline}</dd><dt>PRs</dt><dd>${r.prs.map(id=>tok(prById(id))).join(" ")}</dd><dt>Stories</dt><dd class="mono">${storiesOf(r).map(s=>"AB#"+s).join(", ")}</dd></dl>`
+       : `<p class="sub">No release is in progress, so any developer can cut one.</p>`}
+  </div>
+  <div class="card"><h3>History</h3>${S.history.length? `<div class="tbl"><table class="t"><thead><tr><th>Release</th><th>PRs</th><th>Outcome</th><th>CR</th></tr></thead><tbody>${S.history.slice().reverse().map(h=>`<tr><td class="mono">${h.id}</td><td>${h.prs.map(id=>tok(prById(id))).join(" ")}</td><td>${h.stage==="prod"?'<span class="pill ok">in PROD</span>':`<span class="pill bad">dropped</span> <span class="why">${esc(h.dropReason||"")}</span>`}</td><td class="mono">${h.cr||"–"}</td></tr>`).join("")}</tbody></table></div>`:'<p class="sub">No releases yet in this session. PROD baseline: prod/R2026.10.15.</p>'}</div>`;
+}
+
+function viewFeatures(){
+  const fs=S.features.filter(f=>f.stage!=="merged");
+  const done=S.features.filter(f=>f.stage==="merged");
+  const role=me().role;
+  $("#view").innerHTML=`
+  <p class="sub">Gate 0: each branch gets its own config DB copy and its own Databricks deployment, and is tested end-to-end with an ADF debug run. Gate 1: the PR needs the run ID and passes ten checks, then the tech lead approves.</p>
+  ${fs.map(f=>featureCard(f,role)).join("") || '<div class="empty">No branches in progress. Start one below.</div>'}
+  <div class="card"><h3>Start a branch</h3>
+    <div class="row">
+      <div class="field"><label for="nbStory">Story</label><input type="text" id="nbStory" class="mono" value="AB#5730"></div>
+      <div class="field" style="flex:2 1 260px"><label for="nbTitle">Change</label><input type="text" id="nbTitle" value="Config: NWE_TERMINALS source row"></div>
+      <div class="field"><label for="nbComp">Touches</label><select id="nbComp"><option value="CFG">ADF + config row</option><option value="ADF">ADF only</option><option value="DBX">Databricks</option><option value="UC">Unity Catalog</option></select></div>
+      <button class="btn" data-act="newBranch" ${role!=="dev"?"disabled":""}>Create branch</button>
+    </div>${role!=="dev"?'<span class="why">Developers create branches.</span>':""}
+  </div>
+  ${done.length?`<div class="card"><h3>Merged from this session</h3><p class="sub">${done.map(f=>`PR ${f.pr.id} · ${esc(f.title)}`).join("<br>")}</p></div>`:""}`;
+}
+function featureCard(f, role){
+  const isAuthor = f.author===S.actor;
+  const stepper=[["branch","Branch"],["pushed","Own DB + bundle"],["tested","Debug run"],["pr","PR + checks"],["merged","Merged"]];
+  const idx = {branch:0,pushed:1,tested:2,"pr-failing":3,"pr-open":3,merged:4}[f.stage];
+  let body="";
+  if(f.stage==="branch") body=`<div class="row"><button class="btn" data-act="push" data-f="${f.id}" ${role!=="dev"||!isAuthor?"disabled":""}>Push branch</button></div>`;
+  if(f.stage==="pushed") body=`<p class="sub">Config DB: <span class="mono">${f.db||"not needed"}</span>. Bundle deployed to the developer's own space.</p>
+     <label class="check"><input type="checkbox" id="hc_${f.id}" ${f.hardcoded?"checked":""}> Simulate a mistake: hardcode the source server name in the config row</label>
+     <div class="row"><button class="btn" data-act="debug" data-f="${f.id}" ${role!=="dev"||!isAuthor?"disabled":""}>Run ADF debug</button></div>`;
+  if(f.stage==="tested") body=`<p class="sub">Run <span class="mono">${f.run}</span> succeeded. Fill the PR template.</p>
+     <div class="row">
+      <div class="field"><label for="pf_story_${f.id}">Story</label><input type="text" id="pf_story_${f.id}" class="mono" value="AB#${f.story}"></div>
+      <div class="field" style="flex:2 1 240px"><label for="pf_run_${f.id}">Feature-Test-Run</label><input type="text" id="pf_run_${f.id}" class="mono" value="${f.run}"></div>
+     </div>
+     <div class="field"><label for="pf_desc_${f.id}">Description (what, why, how tested)</label><input type="text" id="pf_desc_${f.id}" value="${esc(f.title)}; tested on ${f.db||"branch"} with debug run"></div>
+     <div class="row">
+      <div class="field" style="flex:2 1 240px"><label for="pf_note_${f.id}">Release-Note</label><input type="text" id="pf_note_${f.id}" value="${esc(f.title)}"></div>
+      <div class="field"><label for="pf_dep_${f.id}">Depends-On</label><input type="text" id="pf_dep_${f.id}" class="mono" value="${f.dependsOn?"#"+f.dependsOn:"none"}"></div>
+     </div>
+     <div class="field"><label for="pf_rb_${f.id}">Rollback</label><input type="text" id="pf_rb_${f.id}" value="${f.files.some(x=>x.startsWith("sqlconfig/"))?"delete the config row added by this PR":""}"></div>
+     <div class="row"><button class="btn" data-act="openpr" data-f="${f.id}" ${role!=="dev"||!isAuthor?"disabled":""}>Open PR</button></div>`;
+  if(f.pr){
+    body=`<ul class="checks">${f.pr.checks.map((c,i)=>`<li><span class="mk ${i===3?(f.pr.approvedBy?"ok":"n"):c.s}">${i===3?(f.pr.approvedBy?"✓":"…"):(c.s==="ok"?"✓":c.s==="warn"?"!":"✕")}</span><span>${i+1}. ${esc(i===3&&f.pr.approvedBy?`Approved by ${USERS[f.pr.approvedBy].name} (CODEOWNERS)`:c.txt)}</span></li>`).join("")}</ul>
+      <div class="row">
+        ${f.stage==="pr-failing"?`<button class="btn" data-act="fixpr" data-f="${f.id}" ${role!=="dev"||!isAuthor?"disabled":""}>Push a fix to the PR</button>`:""}
+        ${f.stage==="pr-open"?`<button class="btn" data-act="approve" data-f="${f.id}" ${role!=="lead"?"disabled":""}>Approve and squash merge</button>${role!=="lead"?'<span class="why">Needs the tech lead.</span>':""}`:""}
+      </div>`;
+  }
+  return `<div class="card ${idx<4?"hl":""}"><div class="card-h"><h3><span class="mono">${esc(f.branch)}</span></h3><span class="pill n">${USERS[f.author].name}${f.kind!=="feature"?` · ${f.kind}`:""}</span></div>
+    <div class="chips">${stepper.map(([k,l],i)=>`<span class="pill ${i<idx?"ok":i===idx?"warn":"n"}">${i+1} ${l}</span>`).join("")}</div>
+    ${f.pr?`<p class="sub">PR <b>${f.pr.id}</b> · ${esc(f.title)}${f.dependsOn?` · Depends-On #${f.dependsOn}`:""}${f.revertOf?` · reverts #${f.revertOf}`:""}</p>`:""}
+    ${body}</div>`;
+}
+
+function viewCut(){
+  const role=me().role, pv=S.preview, can=(role==="dev"||role==="rm");
+  const raw = pv? pv.raw : (S.suggest||"");
+  const same = pv && $("#cutList") && $("#cutList").value.trim()===pv.raw;
+  const warns = pv? pv.ev.checks.filter(c=>c.s==="warn"):[];
+  const bad = pv? pv.ev.checks.filter(c=>c.s==="bad"):[];
+  $("#view").innerHTML=`
+  <p class="sub">Any developer can cut a release for their PRs. Step 1 previews the list (nothing is cut). Step 2 confirms. The cut is refused while another release is in progress.</p>
+  <div class="card">
+    <div class="row">
+      <div class="field" style="flex:3 1 280px"><label for="cutList">PRs to release (comma-separated)</label><input type="text" id="cutList" class="mono" value="${esc(raw)}" placeholder="1234,1236,1240" autocomplete="off"></div>
+      <button class="btn ghost" data-act="preview" ${!can?"disabled":""}>1 · Preview</button>
+    </div>
+    ${!can?'<span class="why">Switch to a developer or release manager to cut.</span>':""}
+  </div>
+  ${pv? `<div class="card">
+    <div class="card-h"><h3>Preview by ${USERS[pv.by].name}</h3>${bad.length?'<span class="pill bad">blocked</span>':warns.length?'<span class="pill warn">warnings</span>':'<span class="pill ok">ready</span>'}</div>
+    <div class="tbl"><table class="t"><thead><tr><th>PR</th><th>Change</th><th>Story</th><th>Author</th><th>Files</th></tr></thead><tbody>
+    ${preview(pv.raw).rows.map(r=>r.missing?`<tr><td class="mono">${r.id}</td><td colspan="4"><span class="pill bad">${esc(r.note)}</span></td></tr>`:`<tr><td>${tok(r.p)}</td><td>${esc(r.p.title)} ${r.p.labels.map(l=>`<span class="pill bad">${l}</span>`).join(" ")}${r.p.released?` <span class="pill n">in PROD</span>`:""}</td><td class="mono">AB#${r.p.story}</td><td>${USERS[r.p.author].name}</td><td class="files">${r.p.files.join("<br>")}</td></tr>`).join("")}
+    </tbody></table></div>
+    <ul class="checks">${pv.ev.checks.map(c=>`<li><span class="mk ${c.s}">${c.s==="ok"?"✓":c.s==="warn"?"!":"✕"}</span><span>${esc(c.txt)}</span></li>`).join("")}</ul>
+    ${warns.length&&!bad.length?`<label class="check"><input type="checkbox" id="ack"> I've checked the warnings and want to continue</label>`:""}
+    <div class="row"><button class="btn" data-act="cut" ${!can||bad.length?"disabled":""}>2 · Confirm and cut</button>${bad.length?'<span class="why">Fix the blocking items, then preview again.</span>':""}</div>
+  </div>`:""}
+  <div class="card"><h3>Releasable PRs on main</h3>
+   <div class="tbl"><table class="t"><thead><tr><th>PR</th><th>Change</th><th>Author</th><th>Status</th></tr></thead><tbody>
+   ${S.prs.filter(p=>!p.released&&!p.reverted).map(p=>`<tr><td>${tok(p)}</td><td>${esc(p.title)}${p.dependsOn?` <span class="why">Depends-On #${p.dependsOn}</span>`:""}</td><td>${USERS[p.author].name}</td><td>${S.release&&S.release.prs.includes(p.id)?`<span class="pill warn">${S.release.id}</span>`:p.labels.map(l=>`<span class="pill bad">${l}</span>`).join(" ")||'<span class="pill ok">ready</span>'}</td></tr>`).join("")||'<tr><td colspan="4" class="why">Nothing waiting.</td></tr>'}
+   </tbody></table></div></div>`;
+}
+
+function viewPromotion(){
+  const r=S.release, role=me().role;
+  if(!r){ $("#view").innerHTML=`<div class="empty">No release is in progress. Cut one on the Gate 2 tab.${S.suggest?` Suggested re-cut: <span class="mono">${S.suggest}</span>.`:""}</div>`; return; }
+  const ps=r.prs.map(prById);
+  const failPicker=(where)=>`<div class="field"><label>PR(s) that failed ${where.toUpperCase()}</label><div class="chips">${ps.map(p=>`<label class="check" style="font-size:13px"><input type="checkbox" class="failpick" value="${p.id}"> ${tok(p)}</label>`).join("")}</div></div>`;
+  $("#view").innerHTML=`
+  <div class="card"><div class="card-h"><h3>release/${r.id}</h3><span class="pill warn">${stageName(r.stage)}</span></div>
+    <dl class="kv"><dt>PRs</dt><dd>${ps.map(tok).join(" ")}</dd><dt>Baseline</dt><dd class="mono">prod/${r.baseline}${r.baseline!==latestProd()?' <span class="pill bad">stale</span>':""}</dd><dt>Cut by</dt><dd>${USERS[r.by].name}</dd></dl>
+    <div class="row"><button class="btn danger" data-act="drop" ${!(role==="rm"||S.actor===r.by)?"disabled":""}>Drop release</button><span class="why">Release manager or the person who cut it.</span></div>
+  </div>
+  <div class="card ${r.stage==="qa"?"hl":""}"><div class="card-h"><h3>QA · deployed automatically</h3>${r.stage==="qa"?'<span class="pill warn">testing</span>':'<span class="pill ok">passed</span>'}</div>
+    ${r.stage==="qa"?`<p class="sub">QA tests the release. The QA lead's approval of the UAT deployment is the QA sign-off (Gate 3).</p>
+      <div class="row"><button class="btn" data-act="approveUAT" ${role!=="qa"?"disabled":""}>Approve deployment to UAT</button></div>
+      ${failPicker("qa")}<div class="row"><button class="btn danger" data-act="failqa" ${role!=="qa"?"disabled":""}>Fail selected and drop release</button></div>
+      ${role!=="qa"?'<span class="why">Needs the QA lead.</span>':""}`:`<p class="sub">Approved by ${USERS[r.uatBy].name}.</p>`}
+  </div>
+  <div class="card ${r.stage==="uat"?"hl":""}"><div class="card-h"><h3>Gate 3 · UAT</h3>${r.stage==="uat"?'<span class="pill warn">business testing</span>':(r.signoffBy?'<span class="pill ok">signed off</span>':'<span class="pill n">locked</span>')}</div>
+    ${r.stage==="uat"?`<div class="row"><button class="btn" data-act="signoff" ${role!=="biz"?"disabled":""}>Record business sign-off</button></div>
+      ${failPicker("uat")}<div class="row"><button class="btn danger" data-act="failuat" ${role!=="biz"?"disabled":""}>Fail selected and drop release</button></div>
+      ${role!=="biz"?'<span class="why">Needs the business owner.</span>':""}`: r.signoffBy?`<p class="sub">Signed off by ${USERS[r.signoffBy].name}.</p>`:""}
+  </div>
+  <div class="card ${["uat","awaiting-prod"].includes(r.stage)?"hl":""}"><div class="card-h"><h3>Gate 4 · Change request (manual)</h3>${r.cr?'<span class="pill ok">'+r.cr+'</span>':'<span class="pill n">by hand</span>'}</div>
+    <p class="sub">Paste this into ServiceNow during UAT. No integration: the release manager checks the CR by hand.</p>
+    <pre class="cr" id="crText">${esc(generateCR(r))}</pre>
+    <div class="row"><button class="btn ghost" data-act="copycr">Copy CR text</button></div>
+  </div>
+  <div class="card ${["awaiting-prod","prod-pending"].includes(r.stage)?"hl":""}"><div class="card-h"><h3>Gate 5 · deploy-prod</h3>${r.stage==="prod-pending"?'<span class="pill warn">approval pending</span>':'<span class="pill n">release manager</span>'}</div>
+    ${r.stage==="prod-pending"? `<p class="sub">deploy-prod started with ${r.cr}. Waiting for the prod environment approval.</p><div class="row"><button class="btn" data-act="approveProd" ${role!=="rm"?"disabled":""}>Approve prod deployment</button></div>`:
+    `<div class="row"><div class="field"><label for="chg">change_request</label><input type="text" id="chg" class="mono" placeholder="CHG0034567"></div></div>
+     <label class="check"><input type="checkbox" id="crok"> CR is approved, inside its change window, lists exactly PRs ${r.prs.join(", ")}, and has UAT business sign-off</label>
+     <div class="row"><button class="btn" data-act="startProd" ${role!=="rm"||r.stage!=="awaiting-prod"?"disabled":""}>Run deploy-prod</button>${role!=="rm"?'<span class="why">Needs a release manager.</span>':r.stage!=="awaiting-prod"?'<span class="why">Available after business sign-off.</span>':""}</div>`}
+  </div>`;
+}
+
+function viewPRs(){
+  const role=me().role;
+  $("#view").innerHTML=`<p class="sub">Every merged PR on main. Failed PRs are labelled and blocked from cuts until their fix is listed too. Fix forward by default; revert only if the story is abandoned, it breaks DEV, or it blocks another cut.</p>
+  <div class="tbl"><table class="t"><thead><tr><th>PR</th><th>Change</th><th>Story</th><th>Author</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+  ${S.prs.slice().reverse().map(p=>{
+    const st = p.released?`<span class="pill n">prod/${p.released}</span>`: p.reverted?'<span class="pill n">reverted</span>': (S.release&&S.release.prs.includes(p.id))?`<span class="pill warn">${S.release.id}</span>`: (p.labels.map(l=>`<span class="pill bad">${l}</span>`).join(" ")||'<span class="pill ok">on main</span>');
+    const failed=p.labels.length && !p.released && !p.reverted;
+    const hasFix=S.prs.some(q=>q.dependsOn===p.id) || S.features.some(f=>f.dependsOn===p.id || f.revertOf===p.id);
+    const acts = failed && !hasFix ? `<button class="btn ghost" data-act="mkfix" data-p="${p.id}" ${role!=="dev"?"disabled":""}>Fix PR</button> <button class="btn danger" data-act="mkrevert" data-p="${p.id}" ${role!=="dev"?"disabled":""}>Revert</button>` : (failed&&hasFix?'<span class="why">fix in progress</span>':"");
+    return `<tr class="${p.released||p.reverted?"dim":""}"><td>${tok(p)}</td><td>${esc(p.title)}${p.dependsOn?` <span class="why">Depends-On #${p.dependsOn}</span>`:""}${p.revertOf?` <span class="why">reverts #${p.revertOf}</span>`:""}<div class="files">${p.files.join("<br>")}</div></td><td class="mono">AB#${p.story}</td><td>${USERS[p.author].name}</td><td>${st}</td><td>${acts}</td></tr>`;}).join("")}
+  </tbody></table></div>`;
+}
+
+function viewProcess(){
+  $("#view").innerHTML=`
+  <div class="gates-ref">
+   ${[
+    ["GATE 0 · FEATURE TEST","Developer","Own config DB copy (DEV snapshot + branch scripts), own Databricks bundle, ADF debug on the branch. Evidence: a successful run ID."],
+    ["GATE 1 · PULL REQUEST","Tech lead","Ten checks: template, AB# story, verified run ID, CODEOWNER approval, builds, no secrets or hardcoded values, Release-Note, Depends-On, Rollback, up to date + squash."],
+    ["MAIN → DEV","Automatic","Every merge deploys DEV and drops the feature DB. Nothing moves further until a developer lists the PR."],
+    ["GATE 2 · RELEASE CUT","Any developer","Preview, then confirm. Refused while a release is in progress. Failed-PR labels block; ownership warns. Merged, linked, not in PROD, clean cherry-pick. Build once."],
+    ["QA","Automatic","Deploys right after the cut. No approval. The queue keeps QA from being overwritten."],
+    ["GATE 3 · UAT","QA lead","Approving the uat deployment is the QA sign-off. Business users test; the business owner signs off."],
+    ["GATE 4 · CHANGE REQUEST","Release manager","Raised and checked by hand: approved, in window, same PRs, sign-off. No ServiceNow integration."],
+    ["GATE 5 · PROD","Release manager","deploy-prod with the CHG number; refuses a stale baseline; prod approval; deploy; tag prod/<id>; stories Closed; queue free."],
+   ].map(([n,w,t])=>`<div class="card"><span class="n">${n}</span><h3>${w}</h3><p>${esc(t)}</p></div>`).join("")}
+  </div>
+  <div class="card"><h3>Process diagrams (made with Archify)</h3>
+   <p class="sub">Interactive diagrams with dark/light themes and export, stored with the repo:</p>
+   <p class="sub"><a href="https://github.com/vamshi455/enterprisedevops/blob/main/docs/diagrams/archify/feature-to-cut.html" target="_blank" rel="noopener">Feature branch to release cut (Gates 0–2)</a><br>
+   <a href="https://github.com/vamshi455/enterprisedevops/blob/main/docs/diagrams/archify/cut-to-prod.html" target="_blank" rel="noopener">Release cut to PROD (QA, Gates 3–5)</a></p>
+   <p class="why">GitHub shows the HTML source; download the file and open it in a browser to use it.</p></div>
+  <div class="card"><h3>About this app</h3><p class="sub">A working simulation of the agreed process for walkthroughs and training. It does not connect to GitHub, Azure, Databricks or ServiceNow. Your progress is kept in this browser only.</p></div>`;
+}
+
+/* ================= events ================= */
+document.addEventListener("click", e=>{
+  const t=e.target.closest("[data-tab],[data-act],[data-go],[data-scen]"); if(!t) return;
+  if(t.dataset.tab){ S.tab=t.dataset.tab; render(); return; }
+  if(t.dataset.go){ S.tab=t.dataset.go; render(); return; }
+  if(t.dataset.scen){ runScenario(t.dataset.scen); return; }
+  const a=t.dataset.act, f=t.dataset.f?feat(t.dataset.f):null;
+  if(a==="push") pushBranch(f);
+  if(a==="debug"){ const hc=document.getElementById("hc_"+f.id); f.hardcoded=hc?hc.checked:false; debugRun(f); }
+  if(a==="openpr") openPR(f,{story:val("pf_story_"+f.id),run:val("pf_run_"+f.id),desc:val("pf_desc_"+f.id),note:val("pf_note_"+f.id),dep:val("pf_dep_"+f.id),rollback:val("pf_rb_"+f.id)});
+  if(a==="fixpr") fixPR(f);
+  if(a==="approve") approvePR(f);
+  if(a==="newBranch"){ const st=parseInt(val("nbStory").replace(/\D/g,""))||5730; const comp=val("nbComp");
+    const files = comp==="CFG"? [`sqlconfig/Data/sources/${val("nbTitle").replace(/\W+/g,"_").slice(-16).toUpperCase()}.sql`,"adf/pipeline/pl_ingest_generic.json"] : comp==="ADF"? ["adf/pipeline/pl_new.json"] : comp==="DBX"? ["databricks/src/nb_new.py"] : ["databricks/sql/V0009__new.sql"];
+    newBranch("feature", st, val("nbTitle")||"New change", comp, files); L(`Created branch for AB#${st}`, "h"); }
+  if(a==="preview") doPreview(val("cutList"));
+  if(a==="cut") doCut(val("cutList"), !!(document.getElementById("ack")||{}).checked);
+  if(a==="approveUAT") approveUAT();
+  if(a==="signoff") signoff();
+  if(a==="failqa") failStories(picked(),"qa");
+  if(a==="failuat") failStories(picked(),"uat");
+  if(a==="drop") dropRelease("dropped by "+me().name);
+  if(a==="copycr"){ const txt=$("#crText").textContent; try{ navigator.clipboard.writeText(txt).then(()=>{L("CR text copied","")}, ()=>sel()); }catch(err){ sel(); } }
+  if(a==="startProd") startProd(val("chg").trim(), !!$("#crok").checked);
+  if(a==="approveProd") approveProd();
+  if(a==="mkfix"){ const p=prById(+t.dataset.p); const id=newBranch("fix", p.story, `Fix for PR ${p.id}: ${p.title}`, p.comp, p.files, p.id); S.tab="features"; L(`Created fix branch for PR ${p.id} (Depends-On #${p.id})`,"h"); }
+  if(a==="mkrevert"){ const p=prById(+t.dataset.p); newBranch("revert", p.story, `Revert PR ${p.id}`, p.comp, p.files, null, p.id); S.tab="features"; L(`Opened revert branch for PR ${p.id} (GitHub Revert)`,"h"); }
+  render();
+  function sel(){ const r=document.createRange(); r.selectNodeContents($("#crText")); const s=getSelection(); s.removeAllRanges(); s.addRange(r); }
+});
+document.addEventListener("input", e=>{ if(e.target.id==="cutList" && S.preview && e.target.value.trim()!==S.preview.raw){ /* preview no longer matches */ const b=document.querySelector('[data-act="cut"]'); if(b) b.disabled=true; } });
+const val = id => (document.getElementById(id)||{value:""}).value;
+const picked = () => [...document.querySelectorAll(".failpick:checked")].map(x=>+x.value);
+$("#actor").addEventListener("change", e=>{ S.actor=e.target.value; L(`Now acting as ${me().label}`,"t"); render(); });
+$("#resetBtn").addEventListener("click", ()=>{ stopScenario(); S=seed(); L("Demo reset. PROD at prod/R2026.10.15","t",false); render(); });
+
+/* ================= guided scenarios ================= */
+let timers=[];
+function stopScenario(){ timers.forEach(clearTimeout); timers=[]; $("#narr").hidden=true; }
+$("#narrStop").addEventListener("click", stopScenario);
+function as(u){ S.actor=u; }
+function narr(i,n,text){ $("#narr").hidden=false; $("#narrK").textContent=`STEP ${i} OF ${n}`; $("#narrT").textContent=text; }
+const SCEN = {
+  sunny:{label:"Sunny day: branch to PROD", steps:[
+    ["Priya pushes feature/AB#5710: her own config DB copy is created and her bundle is deployed.", ()=>{as("priya"); S.tab="features"; pushBranch(S.features[0]);}],
+    ["She runs the ADF debug against sqldb-etlcfg-ft-5710. It succeeds and gives her a run ID.", ()=>{as("priya"); debugRun(S.features[0]);}],
+    ["She opens the PR with the run ID, story and notes. All automated checks pass.", ()=>{as("priya"); const f=S.features[0]; openPR(f,{story:"AB#5710",run:f.run,desc:"SAP sales source; tested on own DB",note:f.title,dep:"none",rollback:"delete config row SAP_SALES"});}],
+    ["Ana, the tech lead, approves. The PR is squash-merged; DEV deploys; the feature DB is dropped.", ()=>{as("ana"); approvePR(S.features[0]);}],
+    ["Priya previews a release of PRs 1257 and 1242 (Ravi's config row). Nothing is cut yet.", ()=>{as("priya"); S.tab="cut"; doPreview("1257,1242");}],
+    ["She acknowledges the ownership warning and confirms. The release is cut, built once and deployed to QA.", ()=>{as("priya"); doCut("1257,1242",true);}],
+    ["Mei, the QA lead, approves the UAT deployment. That is the QA sign-off.", ()=>{as("mei"); approveUAT();}],
+    ["Tom, the business owner, signs off UAT. Sam raised the CR by hand during UAT.", ()=>{as("tom"); signoff();}],
+    ["Sam checks the approved CR and runs deploy-prod with CHG0034567.", ()=>{as("sam"); startProd("CHG0034567",true);}],
+    ["Sam approves prod. PROD deploys, is tagged prod/R2026.11.01, stories close and the queue is free.", ()=>{as("sam"); approveProd(); S.tab="pipeline";}],
+  ]},
+  typo:{label:"Mistyped PR number", steps:[
+    ["Ravi means to release 1242 but types 1224.", ()=>{as("ravi"); S.tab="cut"; doPreview("1224");}],
+    ["The preview shows no merged PR 1224, so nothing can be cut. He corrects it to 1242.", ()=>{as("ravi"); doPreview("1242");}],
+    ["The preview now shows his own PR and story. He confirms the cut.", ()=>{as("ravi"); doCut("1242",true);}],
+  ]},
+  queue:{label:"Second cut refused by the queue", steps:[
+    ["Ravi cuts a release of PR 1251.", ()=>{as("ravi"); S.tab="cut"; doPreview("1251"); doCut("1251",true);}],
+    ["Priya tries to cut PR 1240 at the same time. The queue refuses and names Ravi's release.", ()=>{as("priya"); S.tab="cut"; doPreview("1240");}],
+    ["She waits until Ravi's release ships or is dropped, then cuts again from the new PROD tag.", ()=>{as("priya");}],
+  ]},
+  qafail:{label:"Story fails QA, rework", steps:[
+    ["Priya cuts PRs 1234, 1236 and 1240.", ()=>{as("priya"); S.tab="cut"; doPreview("1234,1236,1240"); doCut("1234,1236,1240",true);}],
+    ["Mei finds PR 1240 broken. She fails it: the release is dropped and 1240 is labelled failed-qa.", ()=>{as("mei"); S.tab="promotion"; failStories([1240],"qa");}],
+    ["Priya tries to release 1240 again by mistake. The label blocks it.", ()=>{as("priya"); S.tab="cut"; doPreview("1234,1236,1240");}],
+    ["She re-cuts only the passing PRs 1234 and 1236. They go back through QA as a new build.", ()=>{as("priya"); doPreview("1234,1236"); doCut("1234,1236",true);}],
+    ["She opens a fix branch for 1240 (Depends-On #1240). It must pass Gates 0 and 1 again, and the next release lists both PRs.", ()=>{as("priya"); const p=prById(1240); newBranch("fix",p.story,`Fix for PR ${p.id}: ${p.title}`,p.comp,p.files,p.id); L(`Created fix branch for PR ${p.id} (Depends-On #${p.id})`,"h"); S.tab="features";}],
+  ]},
+  stale:{label:"PR blocked: missing dependency", steps:[
+    ["Priya wants to release PR 1245 (tunes pl_ingest_sales) without PR 1234, which created that pipeline.", ()=>{as("priya"); S.tab="cut"; doPreview("1245");}],
+    ["The preview blocks it and names PR 1234. She adds it and the cut goes through.", ()=>{as("priya"); doPreview("1234,1245"); doCut("1234,1245",true);}],
+  ]},
+};
+function runScenario(k){
+  stopScenario(); S=seed(); S.log=[];
+  const sc=SCEN[k]; L(`Scenario: ${sc.label}`,"h",false);
+  const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches, gap=reduce?900:2600;
+  sc.steps.forEach(([text,fn],i)=>timers.push(setTimeout(()=>{ fn(); narr(i+1,sc.steps.length,text); render(); if(i===sc.steps.length-1) timers.push(setTimeout(()=>{},10)); }, i*gap)));
+  render();
+  $("#narr").hidden=false; $("#narrK").textContent="STARTING"; $("#narrT").textContent=sc.label;
+}
+$("#scen").innerHTML=Object.entries(SCEN).map(([k,v])=>`<button class="chipbtn" data-scen="${k}">${v.label}</button>`).join("");
+
+if(!S.log.length) L("Welcome. Switch roles with “Acting as”, or run a guided scenario.","t",false);
+render();
+})();
+</script>

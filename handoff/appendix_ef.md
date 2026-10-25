@@ -17,6 +17,7 @@ Rules (HANDOFF §2, summary):
 
 Living files: STATUS.md, DECISIONS.md, environment/{INVENTORY,ENVIRONMENT_FACTS,CURRENT_PROCESS,REQUIREMENTS,ACCESS_GAPS}.md.
 New platform repo: shell-data-platform/ (Phase 4).
+Diagrams: use the Archify skill (.github/skills/archify, HANDOFF §5.16); keep sources in docs/diagrams/archify/.
 ````
 
 ## Appendix F: Task prompts (create in Phase 1 under `.github/prompts/`)

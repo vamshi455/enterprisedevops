@@ -1,6 +1,6 @@
 # Shell Data Platform CI/CD: Handoff for the Local Coding Agent
 
-Version 1.5 · 25 Oct 2026 · Owner: Vamshi Singam (lead)
+Version 1.6 · 25 Oct 2026 · Owner: Vamshi Singam (lead)
 
 This file is **self-contained**. It holds the full context, target architecture, specifications, conventions,
 access requirements and reference code. No other repository or document is needed.
@@ -105,6 +105,8 @@ PDX_Projects/devops-cicd/
    (what it contains, which environment, how current). Note where it already answers a question from §6.
 2. Create `STATUS.md`, `DECISIONS.md` and the `environment/` folder if missing.
 3. Create `.github/copilot-instructions.md` from Appendix E and the prompt files from Appendix F.
+   Install the **Archify** diagram skill (§5.16) into `.github/skills/archify/` if Vamshi has provided `archify-3.2.0.zip`
+   (or, with internet access and his approval, `npx skills add tt-a1i/archify`). Run `node .github/skills/archify/bin/archify.mjs doctor`.
    If a `copilot-instructions.md` already exists, append ours under a heading `## Shell CI/CD handoff`.
 4. Stop. Report: the inventory summary, which open questions (§6) already look answered, and what is missing.
 
@@ -637,6 +639,23 @@ Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release
   DEV data. Scheduling, volume and performance are first proven in QA.
 - **Feature copies:** reset watermarks to test real loads, refresh stale copies, and never let feature runs write to shared DEV
   targets (§5.4).
+
+### 5.16 Tooling: Archify diagrams and the Release Control app
+
+- **Archify** (open-source agent skill, v3.2.0, Apache-2.0/MIT, https://github.com/tt-a1i/archify) produces checked, standalone
+  HTML diagrams (workflow, architecture, sequence, lifecycle, ERD…) from a small JSON description. Use it for every process or
+  architecture diagram in `docs/`. Install: unzip `archify-3.2.0.zip` into `<workspace>/.github/skills/` (VS Code Copilot also reads
+  `.claude/skills/`, `~/.copilot/skills/`, `~/.claude/skills/`). Needs Node.js 18+ and Chrome/Chromium/Edge for its browser check
+  (`ARCHIFY_CHROME=<path>` if not found). Generate with
+  `node .github/skills/archify/bin/archify.mjs finalize workflow <name>.archify.json <name>.html --quality showcase --json`;
+  a non-zero exit is a failure to repair, not a result. Keep the `.archify.json` sources next to the HTML in `docs/diagrams/archify/`.
+- Two diagrams already exist and should be recreated in the platform repo: **Feature branch to release cut (Gates 0–2)** and
+  **Release cut to PROD (QA, Gates 3–5)**. Their workflow structure: lanes Developer / GitHub Actions / Tech lead, and
+  GitHub Actions / QA / Business owner / Release manager; nodes and edges exactly as the gates in §5.3.
+- **Release Control** is a standalone HTML app (single file, opens offline in Edge/Chrome) that simulates this whole process with
+  roles (developer, tech lead, QA lead, business owner, release manager), the release queue, cut guards, manual CR and PROD.
+  Use it for team walkthroughs and as the behavioural reference when building the workflows: what it allows or refuses for each
+  role is what the real workflows must allow or refuse.
 
 ---
 
@@ -1376,6 +1395,7 @@ Rules (HANDOFF §2, summary):
 
 Living files: STATUS.md, DECISIONS.md, environment/{INVENTORY,ENVIRONMENT_FACTS,CURRENT_PROCESS,REQUIREMENTS,ACCESS_GAPS}.md.
 New platform repo: shell-data-platform/ (Phase 4).
+Diagrams: use the Archify skill (.github/skills/archify, HANDOFF §5.16); keep sources in docs/diagrams/archify/.
 ````
 
 ## Appendix F: Task prompts (create in Phase 1 under `.github/prompts/`)

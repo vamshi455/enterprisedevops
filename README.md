@@ -1,6 +1,6 @@
 # Shell Data Platform — DevOps reference (ADF + Azure SQL config + Databricks + Unity Catalog)
 
-**▶ Live simulator: https://vamshi455.github.io/enterprisedevops/** · **[Proposal PDF](docs/Release-Process-Config-DB-Proposal.pdf)** · **[Release process and gates](docs/RELEASE-PROCESS.md)** ([PDF](docs/Shell-Data-Release-Process-and-Gates.pdf)) · **[HANDOFF.md](HANDOFF.md)** (self-contained brief for a local coding agent)
+**▶ Live simulator: https://vamshi455.github.io/enterprisedevops/** · **[Proposal PDF](docs/Release-Process-Config-DB-Proposal.pdf)** · **[Release process and gates](docs/RELEASE-PROCESS.md)** ([PDF](docs/Shell-Data-Release-Process-and-Gates.pdf)) · **[Release Control app](release-control/index.html)** · **[Archify diagrams](docs/diagrams/archify/)** · **[HANDOFF.md](HANDOFF.md)** (self-contained brief for a local coding agent)
 
 A working scaffold for promoting **Azure Data Factory**, **Databricks** and **Unity Catalog SQL**
 through **DEV → QA → UAT → PROD**, where the unit of release is a **list of Pull Requests**, never

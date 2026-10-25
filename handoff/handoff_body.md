@@ -1,6 +1,6 @@
 # Shell Data Platform CI/CD: Handoff for the Local Coding Agent
 
-Version 1.5 · 25 Oct 2026 · Owner: Vamshi Singam (lead)
+Version 1.6 · 25 Oct 2026 · Owner: Vamshi Singam (lead)
 
 This file is **self-contained**. It holds the full context, target architecture, specifications, conventions,
 access requirements and reference code. No other repository or document is needed.
@@ -105,6 +105,8 @@ PDX_Projects/devops-cicd/
    (what it contains, which environment, how current). Note where it already answers a question from §6.
 2. Create `STATUS.md`, `DECISIONS.md` and the `environment/` folder if missing.
 3. Create `.github/copilot-instructions.md` from Appendix E and the prompt files from Appendix F.
+   Install the **Archify** diagram skill (§5.16) into `.github/skills/archify/` if Vamshi has provided `archify-3.2.0.zip`
+   (or, with internet access and his approval, `npx skills add tt-a1i/archify`). Run `node .github/skills/archify/bin/archify.mjs doctor`.
    If a `copilot-instructions.md` already exists, append ours under a heading `## Shell CI/CD handoff`.
 4. Stop. Report: the inventory summary, which open questions (§6) already look answered, and what is missing.
 

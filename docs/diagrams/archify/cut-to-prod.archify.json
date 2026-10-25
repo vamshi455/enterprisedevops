@@ -1,0 +1,52 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Release Cut to PROD (QA, Gates 3-5)",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "output": "docs/diagrams/archify/cut-to-prod.html"
+  },
+  "lanes": [
+    { "id": "gha", "label": "GitHub Actions (automatic)" },
+    { "id": "qa", "label": "QA team / QA lead" },
+    { "id": "biz", "label": "Business owner" },
+    { "id": "rm", "label": "Release manager + ServiceNow (manual)" }
+  ],
+  "phases": [
+    { "id": "p_qa", "label": "QA · automatic", "fromCol": 0, "toCol": 1, "variant": "dashed" },
+    { "id": "p_uat", "label": "Gate 3 · UAT", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "p_cr", "label": "Gate 4 · CR", "fromCol": 4, "toCol": 4, "variant": "security" },
+    { "id": "p_prod", "label": "Gate 5 · PROD", "fromCol": 5, "toCol": 5, "variant": "security" }
+  ],
+  "mainPath": ["built", "qadeploy", "qatest", "qaapprove", "uatdeploy", "signoff", "crcheck", "prodapprove", "proddeploy"],
+  "nodes": [
+    { "id": "built", "lane": "gha", "col": 0, "type": "backend", "label": "Release built once", "sublabel": "release/R2026.11.01 + manifest" },
+    { "id": "qadeploy", "lane": "gha", "col": 1, "type": "cloud", "label": "Deploy QA", "sublabel": "automatic · no approval", "tag": "stories In QA" },
+    { "id": "qatest", "lane": "qa", "col": 1, "type": "external", "label": "QA tests", "sublabel": "functional + regression", "icon": "person" },
+    { "id": "qaapprove", "lane": "qa", "col": 2, "type": "security", "label": "QA lead approves", "sublabel": "Review deployments: uat" },
+    { "id": "uatdeploy", "lane": "gha", "col": 3, "type": "cloud", "label": "Deploy UAT", "sublabel": "same build", "tag": "stories In UAT" },
+    { "id": "signoff", "lane": "biz", "col": 3, "type": "external", "label": "Business sign-off", "sublabel": "named business owner", "icon": "person" },
+    { "id": "raisecr", "lane": "rm", "col": 3, "type": "frontend", "label": "Raise CR by hand", "sublabel": "from generated CR text" },
+    { "id": "crcheck", "lane": "rm", "col": 4, "type": "security", "label": "CR check", "sublabel": "approved · window · same PRs", "tag": "run deploy-prod + CHG" },
+    { "id": "prodapprove", "lane": "rm", "col": 5, "type": "security", "label": "Approve prod", "sublabel": "release manager", "icon": "person" },
+    { "id": "proddeploy", "lane": "gha", "col": 5, "type": "cloud", "label": "Deploy PROD", "sublabel": "tag prod/R2026.11.01", "tag": "stories Closed · queue free" }
+  ],
+  "edges": [
+    { "id": "f_qa", "from": "built", "to": "qadeploy", "label": "auto", "variant": "default" },
+    { "id": "f_test", "from": "qadeploy", "to": "qatest", "label": "ready", "variant": "default" },
+    { "id": "f_pass", "from": "qatest", "to": "qaapprove", "label": "passed", "variant": "emphasis" },
+    { "id": "f_uat", "from": "qaapprove", "to": "uatdeploy", "label": "approved", "variant": "security" },
+    { "id": "f_biz", "from": "uatdeploy", "to": "signoff", "label": "business tests", "variant": "default" },
+    { "id": "f_raise", "from": "signoff", "to": "raisecr", "label": "during UAT", "variant": "dashed", "role": "branch" },
+    { "id": "f_cr", "from": "raisecr", "to": "crcheck", "label": "CR approved", "variant": "default" },
+    { "id": "f_signed", "from": "signoff", "to": "crcheck", "label": "signed off", "variant": "emphasis" },
+    { "id": "f_prod", "from": "crcheck", "to": "prodapprove", "label": "checked", "variant": "security" },
+    { "id": "f_deploy", "from": "prodapprove", "to": "proddeploy", "label": "approved", "variant": "emphasis" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "One build everywhere", "items": ["QA, UAT and PROD get the identical artifact", "Deploy order: SQL config, UC, Databricks, ADF"] },
+    { "dot": "rose", "title": "Manual change control", "items": ["No ServiceNow integration", "CR number recorded in the prod tag and manifest"] },
+    { "dot": "amber", "title": "Queue", "items": ["One release in progress until tagged or dropped", "deploy-prod refuses a stale baseline"] }
+  ]
+}

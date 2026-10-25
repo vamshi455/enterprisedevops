@@ -1,0 +1,47 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Feature Branch to Release Cut (Gates 0-2)",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "output": "docs/diagrams/archify/feature-to-cut.html"
+  },
+  "lanes": [
+    { "id": "dev", "label": "Developer" },
+    { "id": "gha", "label": "GitHub Actions (automatic)" },
+    { "id": "lead", "label": "Tech lead" }
+  ],
+  "phases": [
+    { "id": "p_feature", "label": "Gate 0 · Feature test", "fromCol": 0, "toCol": 2, "variant": "emphasis" },
+    { "id": "p_pr", "label": "Gate 1 · Pull request", "fromCol": 3, "toCol": 4, "variant": "security" },
+    { "id": "p_cut", "label": "Gate 2 · Release cut", "fromCol": 5, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["build", "featureenv", "debug", "openpr", "checks", "approve", "merge", "preview", "cut"],
+  "nodes": [
+    { "id": "build", "lane": "dev", "col": 0, "type": "frontend", "label": "Build on branch", "sublabel": "feature/AB#5710 · ADF, SQL, Databricks", "icon": "person" },
+    { "id": "featureenv", "lane": "gha", "col": 1, "type": "database", "label": "feature-env", "sublabel": "copy DEV config DB to ft-5710", "tag": "branch scripts applied" },
+    { "id": "debug", "lane": "dev", "col": 2, "type": "backend", "label": "ADF debug + bundle dev", "sublabel": "configDb = ft-5710", "tag": "run succeeded" },
+    { "id": "openpr", "lane": "dev", "col": 3, "type": "frontend", "label": "Open PR to main", "sublabel": "AB#, run ID, notes" },
+    { "id": "checks", "lane": "gha", "col": 3, "type": "security", "label": "PR checks", "sublabel": "10 checks · run ID verified", "tag": "blocking" },
+    { "id": "approve", "lane": "lead", "col": 4, "type": "security", "label": "Tech lead approves", "sublabel": "CODEOWNER · not the author", "icon": "person" },
+    { "id": "merge", "lane": "gha", "col": 4, "type": "backend", "label": "Squash merge", "sublabel": "deploy DEV · drop feature DB" },
+    { "id": "preview", "lane": "dev", "col": 5, "type": "frontend", "label": "Preview, then confirm", "sublabel": "pr_list = 1256,1242" },
+    { "id": "cut", "lane": "gha", "col": 5, "type": "security", "label": "Queue, guards, cut", "sublabel": "cherry-pick by PR · build once", "tag": "release/R2026.11.01" }
+  ],
+  "edges": [
+    { "id": "e_push", "from": "build", "to": "featureenv", "label": "push", "variant": "default" },
+    { "id": "e_ready", "from": "featureenv", "to": "debug", "label": "own DB ready", "variant": "default" },
+    { "id": "e_runid", "from": "debug", "to": "openpr", "label": "run ID", "variant": "emphasis" },
+    { "id": "e_validate", "from": "openpr", "to": "checks", "label": "validate", "variant": "security" },
+    { "id": "e_review", "from": "checks", "to": "approve", "label": "all green", "variant": "security" },
+    { "id": "e_merge", "from": "approve", "to": "merge", "label": "approved", "variant": "emphasis" },
+    { "id": "e_release", "from": "merge", "to": "preview", "label": "list PRs", "variant": "default" },
+    { "id": "e_cut", "from": "preview", "to": "cut", "label": "confirm", "variant": "emphasis" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Gate 0 evidence", "items": ["Own config DB copy: DEV snapshot plus branch scripts", "ADF debug run ID must have succeeded"] },
+    { "dot": "rose", "title": "Gate 1 · 10 checks", "items": ["Template, AB# story, verified run ID, tech lead", "Builds pass, no secrets, notes, up to date, squash"] },
+    { "dot": "amber", "title": "Gate 2 · cut", "items": ["Refused if a release is in progress", "Failed-PR label blocks; ownership warns", "Merged, linked, not in PROD, no conflicts"] }
+  ]
+}

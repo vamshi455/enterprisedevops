@@ -4,3 +4,4 @@ node_modules/
 adf/ArmTemplate/
 .databricks/
 .venv/
+.archify/

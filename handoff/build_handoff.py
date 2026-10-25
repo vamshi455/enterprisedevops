@@ -87,6 +87,23 @@ out.append("""
 - **Feature copies:** reset watermarks to test real loads, refresh stale copies, and never let feature runs write to shared DEV
   targets (§5.4).
 
+### 5.16 Tooling: Archify diagrams and the Release Control app
+
+- **Archify** (open-source agent skill, v3.2.0, Apache-2.0/MIT, https://github.com/tt-a1i/archify) produces checked, standalone
+  HTML diagrams (workflow, architecture, sequence, lifecycle, ERD…) from a small JSON description. Use it for every process or
+  architecture diagram in `docs/`. Install: unzip `archify-3.2.0.zip` into `<workspace>/.github/skills/` (VS Code Copilot also reads
+  `.claude/skills/`, `~/.copilot/skills/`, `~/.claude/skills/`). Needs Node.js 18+ and Chrome/Chromium/Edge for its browser check
+  (`ARCHIFY_CHROME=<path>` if not found). Generate with
+  `node .github/skills/archify/bin/archify.mjs finalize workflow <name>.archify.json <name>.html --quality showcase --json`;
+  a non-zero exit is a failure to repair, not a result. Keep the `.archify.json` sources next to the HTML in `docs/diagrams/archify/`.
+- Two diagrams already exist and should be recreated in the platform repo: **Feature branch to release cut (Gates 0–2)** and
+  **Release cut to PROD (QA, Gates 3–5)**. Their workflow structure: lanes Developer / GitHub Actions / Tech lead, and
+  GitHub Actions / QA / Business owner / Release manager; nodes and edges exactly as the gates in §5.3.
+- **Release Control** is a standalone HTML app (single file, opens offline in Edge/Chrome) that simulates this whole process with
+  roles (developer, tech lead, QA lead, business owner, release manager), the release queue, cut guards, manual CR and PROD.
+  Use it for team walkthroughs and as the behavioural reference when building the workflows: what it allows or refuses for each
+  role is what the real workflows must allow or refuse.
+
 ---
 
 ## 6. Open questions (answer in Phase 2 from evidence)
