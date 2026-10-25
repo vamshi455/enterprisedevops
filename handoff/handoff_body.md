@@ -1,6 +1,6 @@
 # Shell Data Platform CI/CD: Handoff for the Local Coding Agent
 
-Version 1.4 · 24 Oct 2026 · Owner: Vamshi Singam (lead)
+Version 1.5 · 25 Oct 2026 · Owner: Vamshi Singam (lead)
 
 This file is **self-contained**. It holds the full context, target architecture, specifications, conventions,
 access requirements and reference code. No other repository or document is needed.
@@ -17,7 +17,7 @@ choose Copilot Chat **Agent** mode with your Claude model, and send:
 After each phase, review and say "Proceed to Phase N".
 
 **For the agent:** work strictly phase by phase (§4). Do not start a phase until the previous one is reviewed.
-Section 5 is the target design: implement it, do not redesign it. If the real environment contradicts it,
+Section 5 is the target design: implement it, do not redesign it. Appendix G is the team-facing summary of the whole process (all gates, sunny-day flow, edge cases). If the real environment contradicts it,
 record the conflict in `DECISIONS.md` and ask.
 
 ---

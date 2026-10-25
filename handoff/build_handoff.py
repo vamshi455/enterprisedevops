@@ -127,5 +127,15 @@ Replace these with the team's real tables found in Phase 2; keep the conventions
 "ADF linked service parameterised by database name (`adf/linkedService/ls_sql_etlconfig.json`)" + code('adf/linkedService/ls_sql_etlconfig.json', 'json'))
 
 out.append(open('handoff/appendix_ef.md').read())
+out.append("""
+## Appendix G: Release process and gates (team-facing document)
+
+Create this as `docs/RELEASE-PROCESS.md` in the platform repo in step 4.1 and keep it in sync with §5. It is the single
+document the team reads: every gate, the sunny-day flow, diagrams and the edge-case list.
+
+`````markdown
+""" + open('docs/RELEASE-PROCESS.md').read().rstrip() + """
+`````
+""")
 open('HANDOFF.md', 'w').write("\n".join(out) + "\n")
 print("written", len("\n".join(out)))
