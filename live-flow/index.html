@@ -1,0 +1,624 @@
+<title>Release Live Flow</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: control bar (gate, deployment type, style, play) → swimlane canvas (stages left→right, lanes top→bottom) → gate explainer + "inside a deployment" sub-flow → floating definitions panel bottom-right. */
+:root{
+  --bg:#f2f4f7; --surface:#ffffff; --sunk:#e8edf1; --ink:#14202b; --muted:#566473; --line:#d3dae2; --grid:#e3e8ee;
+  --accent:#0d6970; --accent-ink:#fff; --accent-soft:#dcefef;
+  --lane:#f7f9fb; --lane-alt:#eff3f6; --stage:#ffffff;
+  --dev:#2563a8; --auto:#0d6970; --ppl:#8a4fb8; --env:#b5541c;
+  --ok:#2a7a4e; --ok-bg:#e1f2e7; --warn:#a46510; --warn-bg:#fbefd9; --bad:#b53131; --bad-bg:#f8e2e2;
+  --edge:#8a99a8; --token:#e0761a;
+  --f-display:"Familjen Grotesk","Segoe UI",system-ui,sans-serif;
+  --f-body:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e141a; --surface:#151f29; --sunk:#1c2834; --ink:#e3eaf1; --muted:#93a2b1; --line:#2a3744; --grid:#1f2b37;
+  --accent:#4cb2b9; --accent-ink:#06181a; --accent-soft:#16343a; --lane:#121b24; --lane-alt:#16212c; --stage:#151f29;
+  --dev:#6aa6ec; --auto:#4cb2b9; --ppl:#c08ff0; --env:#ee8a52;
+  --ok:#5cc28a; --ok-bg:#163223; --warn:#e2a94b; --warn-bg:#352914; --bad:#f07979; --bad-bg:#3a1b1d;
+  --edge:#5f7183; --token:#ffb052; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e141a; --surface:#151f29; --sunk:#1c2834; --ink:#e3eaf1; --muted:#93a2b1; --line:#2a3744; --grid:#1f2b37;
+  --accent:#4cb2b9; --accent-ink:#06181a; --accent-soft:#16343a; --lane:#121b24; --lane-alt:#16212c; --stage:#151f29;
+  --dev:#6aa6ec; --auto:#4cb2b9; --ppl:#c08ff0; --env:#ee8a52;
+  --ok:#5cc28a; --ok-bg:#163223; --warn:#e2a94b; --warn-bg:#352914; --bad:#f07979; --bad-bg:#3a1b1d;
+  --edge:#5f7183; --token:#ffb052; color-scheme:dark}
+/* style presets (chosen in the Style dropdown) */
+:root[data-style="blueprint"]{
+  --bg:#0c2340; --surface:#10305a; --sunk:#14396a; --ink:#e6f0ff; --muted:#9db5d8; --line:#2f5a8f; --grid:#173f70;
+  --accent:#7cc4ff; --accent-ink:#06223f; --accent-soft:#1a4677; --lane:#0f2b50; --lane-alt:#12325c; --stage:#10305a;
+  --dev:#9fd0ff; --auto:#7ce3d6; --ppl:#d0b0ff; --env:#ffc38a; --edge:#5f86b8; --token:#ffd166;
+  --ok:#7fe0a8; --ok-bg:#174a3a; --warn:#ffd166; --warn-bg:#4a3d17; --bad:#ff9b9b; --bad-bg:#4a1d24; color-scheme:dark}
+:root[data-style="contrast"]{
+  --bg:#ffffff; --surface:#ffffff; --sunk:#f0f0f0; --ink:#000000; --muted:#333333; --line:#000000; --grid:#dddddd;
+  --accent:#0047b3; --accent-ink:#fff; --accent-soft:#e0ebff; --lane:#ffffff; --lane-alt:#f5f5f5; --stage:#ffffff;
+  --dev:#0047b3; --auto:#006b3c; --ppl:#6a1b9a; --env:#a33b00; --edge:#000000; --token:#d10000;
+  --ok:#006b3c; --ok-bg:#e3f5ea; --warn:#8a4b00; --warn-bg:#fff0d6; --bad:#b00000; --bad-bg:#ffe3e3; color-scheme:light}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:18px 90px}
+h1,h2,h3{font-family:var(--f-display);margin:0;line-height:1.15;text-wrap:balance}
+h1{font-size:24px} h2{font-size:18px} h3{font-size:15px}
+button,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1560px;margin:0 auto;display:grid;gap:14px}
+.wrap>*{min-width:0}
+.eb{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.lede{color:var(--muted);margin:4px 0 0;max-width:80ch}
+.mono{font-family:var(--f-mono);font-size:.86em}
+
+/* controls */
+.controls{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:end;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.ctl{display:grid;gap:4px}
+.ctl label{font-size:11.5px;font-weight:700;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+select{border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:7px 10px;min-width:150px}
+.btn{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.spacer{flex:1}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12.5px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* canvas */
+.canvas{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow-x:auto;position:relative}
+svg#flow{display:block;width:100%;min-width:1180px;height:auto}
+.lane-bg{fill:var(--lane)} .lane-bg.alt{fill:var(--lane-alt)}
+.lane-label{font-family:var(--f-display);font-weight:700;font-size:13px;fill:var(--ink)}
+.lane-sub{font-family:var(--f-body);font-size:11px;fill:var(--muted)}
+.stage-head{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.06em;fill:var(--muted)}
+.stage-title{font-family:var(--f-display);font-weight:700;font-size:13.5px;fill:var(--ink)}
+.stage-col{fill:transparent}
+.stage-col.sel{fill:var(--accent-soft);opacity:.55}
+.gridline{stroke:var(--grid);stroke-width:1}
+.edge{fill:none;stroke:var(--edge);stroke-width:1.6;transition:opacity .25s}
+.edge.on{stroke:var(--accent);stroke-width:2.2}
+.edge.dim{opacity:.18}
+.node{cursor:pointer;transition:opacity .25s}
+.node rect.box{fill:var(--surface);stroke-width:1.6;rx:9}
+.node .bar{rx:2}
+.node text.t{font-family:var(--f-display);font-weight:700;font-size:12.5px;fill:var(--ink)}
+.node text.s{font-family:var(--f-body);font-size:10.8px;fill:var(--muted)}
+.node.dim{opacity:.22}
+.node.active rect.box{stroke-width:3}
+.node:hover rect.box,.node:focus rect.box{stroke-width:2.6}
+.node:focus{outline:none}
+.node .gate-chip{font-family:var(--f-mono);font-size:9.5px;font-weight:600}
+.token{fill:var(--token);filter:drop-shadow(0 0 4px var(--token))}
+.pulse{fill:none;stroke:var(--token);stroke-width:2;opacity:0}
+
+/* tooltip */
+.tip{position:fixed;z-index:30;pointer-events:none;background:var(--ink);color:var(--surface);border-radius:6px;padding:7px 10px;font-size:12.5px;max-width:300px;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.tip b{display:block;font-family:var(--f-display);font-size:13px;margin-bottom:2px}
+
+/* popup (draggable) */
+.pop{position:fixed;z-index:40;width:min(440px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.28);display:grid;max-height:min(78vh,640px)}
+.pop-h{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);cursor:grab;user-select:none;touch-action:none;border-radius:12px 12px 0 0;background:var(--sunk)}
+.pop-h:active{cursor:grabbing}
+.pop-h .grip{font-family:var(--f-mono);color:var(--muted);letter-spacing:-2px}
+.pop-h h3{flex:1}
+.pop-b{padding:12px 14px;overflow:auto;display:grid;gap:10px;font-size:14px}
+.pop-b ul{margin:0;padding-left:18px} .pop-b li{margin:3px 0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13.5px}
+.kv dt{color:var(--muted)} .kv dd{margin:0}
+.x{border:0;background:transparent;font-size:18px;cursor:pointer;color:var(--muted);line-height:1;padding:2px 6px}
+.pill{font-size:11.5px;font-weight:700;padding:1px 8px;border-radius:999px;white-space:nowrap;display:inline-block;background:var(--sunk);color:var(--muted)}
+.pill.ok{background:var(--ok-bg);color:var(--ok)} .pill.warn{background:var(--warn-bg);color:var(--warn)}
+
+/* explainer + inside */
+.below{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:14px}
+@media (max-width:1000px){.below{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:10px;align-content:start;min-width:0}
+.panel ol,.panel ul{margin:0;padding-left:20px} .panel li{margin:3px 0}
+.who{display:flex;gap:6px;flex-wrap:wrap}
+.steps{display:flex;gap:0;flex-wrap:wrap;align-items:stretch}
+.step{flex:1 1 150px;border:1px solid var(--line);border-radius:8px;padding:9px 10px;margin:4px;background:var(--lane);position:relative;transition:background .3s,border-color .3s}
+.step .n{font-family:var(--f-mono);font-size:10.5px;color:var(--muted)}
+.step b{display:block;font-family:var(--f-display);font-size:13.5px}
+.step span.d{font-size:12.5px;color:var(--muted)}
+.step.now{background:var(--warn-bg);border-color:var(--warn)}
+.step.done{background:var(--ok-bg);border-color:var(--ok)}
+abbr.g{text-decoration:underline dotted;text-underline-offset:3px;cursor:help}
+
+/* definitions panel (bottom-right) */
+.defs{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:35;display:grid;justify-items:end;gap:8px}
+.defs-btn{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:9px 16px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.2)}
+.defs-panel{width:min(400px,calc(100vw - 32px));max-height:min(62vh,560px);background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.28);display:grid;grid-template-rows:auto auto 1fr;overflow:hidden}
+.defs-panel header{display:flex;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--sunk)}
+.defs-panel header h3{flex:1}
+.defs-panel input{margin:10px 12px 4px;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:7px 9px;font:inherit;color:inherit}
+.defs-list{overflow:auto;padding:4px 12px 12px;display:grid;gap:8px}
+.def{border-bottom:1px solid var(--line);padding-bottom:8px}
+.def b{font-family:var(--f-display);font-size:14px}
+.def p{margin:2px 0 0;font-size:13.5px;color:var(--muted)}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eb">Shell data platform · ADF · Databricks · Azure SQL config DB</div>
+    <h1>Release Live Flow</h1>
+    <p class="lede">Every gate from feature branch to PROD, with a moving token for the current flow. Pick a gate to explain it, pick a deployment type to see what changes for ADF, Databricks or the Azure SQL config DB, hover for a summary, and click a box for the details (drag the popup by its header).</p>
+  </header>
+
+  <div class="controls" role="group" aria-label="View options">
+    <div class="ctl"><label for="gateSel">Gate</label><select id="gateSel"></select></div>
+    <div class="ctl"><label for="typeSel">Deployment type</label>
+      <select id="typeSel"><option value="all">All three (full release)</option><option value="adf">ADF only</option><option value="dbx">Databricks only</option><option value="sql">Azure SQL DB only</option></select></div>
+    <div class="ctl"><label for="styleSel">Style</label>
+      <select id="styleSel"><option value="classic">Classic</option><option value="blueprint">Blueprint</option><option value="contrast">High contrast</option></select></div>
+    <div class="ctl"><label for="speedSel">Speed</label>
+      <select id="speedSel"><option value="0.6">Slow</option><option value="1" selected>Normal</option><option value="1.8">Fast</option></select></div>
+    <button class="btn ghost" id="prevBtn" title="Previous gate">◀ Prev gate</button>
+    <button class="btn ghost" id="nextBtn" title="Next gate">Next gate ▶</button>
+    <button class="btn" id="playBtn">Pause</button>
+    <button class="btn ghost" id="tourBtn" title="Walk through every gate automatically">Gate tour</button>
+    <div class="spacer"></div>
+    <div class="legend"><span><i style="background:var(--dev)"></i>Developer</span><span><i style="background:var(--auto)"></i>GitHub Actions</span><span><i style="background:var(--ppl)"></i>People / approvals</span><span><i style="background:var(--env)"></i>Azure environment</span></div>
+  </div>
+
+  <div class="canvas"><svg id="flow" role="img" aria-label="Release flow swimlane diagram"></svg></div>
+
+  <div class="below">
+    <section class="panel" aria-live="polite" id="explain"></section>
+    <section class="panel" id="inside"></section>
+  </div>
+</div>
+
+<div class="tip" id="tip" hidden></div>
+<div class="pop" id="pop" hidden role="dialog" aria-labelledby="popTitle">
+  <div class="pop-h" id="popHead"><span class="grip" aria-hidden="true">⋮⋮</span><h3 id="popTitle"></h3><button class="x" id="popClose" aria-label="Close">×</button></div>
+  <div class="pop-b" id="popBody"></div>
+</div>
+<div class="defs">
+  <div class="defs-panel" id="defsPanel" hidden>
+    <header><h3>Definitions</h3><button class="x" id="defsClose" aria-label="Close definitions">×</button></header>
+    <input type="text" id="defsSearch" placeholder="Search a term (e.g. squash)" aria-label="Search definitions">
+    <div class="defs-list" id="defsList"></div>
+  </div>
+  <button class="defs-btn" id="defsBtn" aria-expanded="false" aria-controls="defsPanel">Definitions</button>
+</div>
+
+<script>
+(() => {
+/* ============ glossary ============ */
+const DEFS = [
+ ["PR (pull request)","A request to merge a branch into main. It carries the story link, test evidence and notes, and is where review and checks happen."],
+ ["Squash merge","Merging a PR as ONE single commit on main, however many commits the branch had. One PR = one commit = one story, which is what lets a release pick PRs cleanly."],
+ ["Cherry-pick","Copying a specific commit onto another branch. The release cut cherry-picks each listed PR's squash commit onto the last PROD tag."],
+ ["main","The integration branch. Every approved PR lands here and deploys to DEV. main is not a release; only listed PRs move to QA, UAT and PROD."],
+ ["Feature branch","A developer's own branch (feature/AB#<story>-…) where the change is built and fully tested before a PR."],
+ ["Gate","A checkpoint a change must pass to move forward: automated checks, a person's approval, or both."],
+ ["AB# (Azure Boards link)","Writing AB#5710 in a PR links it to story 5710 in Azure Boards, so every change is traceable to a story."],
+ ["CODEOWNERS","A GitHub file naming who must review which folders. Here it makes the tech lead a required reviewer."],
+ ["Feature-Test-Run","The ADF debug run ID the developer pastes in the PR. The PR check asks ADF whether that run succeeded."],
+ ["Feature DB (copy)","sqldb-etlcfg-ft-<story>: a short-lived copy of the DEV config database plus the branch's scripts, used only to test that branch. Dropped when the PR closes."],
+ ["Elastic pool","A shared, capped pool of database capacity on the DEV SQL server that all feature DB copies live in, to control cost."],
+ ["Release cut","Turning a list of PR numbers into a release branch (release/<id>) by cherry-picking their squash commits onto the last PROD tag."],
+ ["Release queue","Only one release can be in progress (from cut until it reaches PROD or is dropped). A new cut is refused while one is in progress."],
+ ["Preview (confirm=false)","A dry run of the cut that lists each PR's title, story, author and files without cutting anything. Catches mistyped PR numbers."],
+ ["Manifest","releases/<id>/manifest.json: the record of exactly which PRs, stories and commits are in a release, and its baseline."],
+ ["Baseline / PROD tag","prod/<id> is the git tag on what is currently in PROD. The next release starts from it, so PROD never goes backwards."],
+ ["Build once, deploy many","The release is built a single time; QA, UAT and PROD all receive that identical build."],
+ ["GitHub Environment approval","A pause in a workflow until named reviewers click 'Review deployments' and approve. Used for UAT (QA lead) and PROD (release manager)."],
+ ["OIDC / federated credential","How GitHub signs in to Azure without stored passwords: a short-lived token is exchanged for a user-assigned managed identity."],
+ ["Managed identity","An Azure identity for a service or pipeline instead of a person. It must be user-assigned for GitHub to use it."],
+ ["DACPAC","A packaged definition of a SQL database's schema, built from the SQL project. sqlpackage compares it with the target and applies only the differences."],
+ ["sqlpackage","Microsoft's tool that publishes a DACPAC to a database: compare, generate the change script, run pre-deploy, schema changes, then post-deploy."],
+ ["BlockOnPossibleDataLoss","A sqlpackage safety setting: the deployment stops if a change could delete data (dropping a column or table)."],
+ ["SQLCMD variable","A placeholder like $(SourceServer) in a SQL script, filled with the right value per environment at deploy time (from settings/<env>.json)."],
+ ["Post-deployment script","SQL that runs after the schema is updated. Here it applies the config rows with MERGE statements."],
+ ["MERGE (idempotent)","A SQL statement that inserts a config row if missing or updates it if present. Running it twice gives the same result."],
+ ["Idempotent","Safe to run again: repeating it doesn't change the outcome or create duplicates."],
+ ["Runtime tables / watermark","Tables the pipelines write while running (e.g. the last loaded timestamp). Their schema is deployed, their rows never are."],
+ ["settings/<env>.json","One file per environment in Git holding values that differ per environment (source servers, storage, catalogs). No secrets."],
+ ["Key Vault","Azure's secret store. Passwords and keys live here, never in Git or settings files."],
+ ["ARM template","The JSON deployment file ADF exports. Deploying it to a factory creates or updates pipelines, datasets and linked services."],
+ ["ADF Git mode / Debug run","The DEV factory is connected to GitHub so a developer can open their branch and run a pipeline in Debug without publishing it."],
+ ["Integration runtime (IR)","The compute ADF uses to move data; self-hosted IRs reach on-premises or private sources."],
+ ["Databricks Asset Bundle (DAB)","A folder of Databricks jobs, notebooks and settings deployed with 'databricks bundle deploy -t <env>'."],
+ ["Development mode","A bundle target setting that gives each developer their own prefixed copy of jobs, so testing doesn't collide."],
+ ["Unity Catalog (UC)","Databricks' catalog of tables, schemas and permissions; each environment has its own catalog."],
+ ["CR (change request)","The ServiceNow record approving a PROD change. Raised and checked by hand here (no integration)."],
+ ["CHG number","The ServiceNow change request ID (e.g. CHG0034567) entered when starting the PROD deploy."],
+ ["Change window","The approved time slot in which the PROD change may be made."],
+ ["Drop release","Abandoning the release in progress (e.g. a story failed QA). Frees the queue; the passing PRs are cut again."],
+ ["Fix forward","Correcting a bad PR with a new PR rather than undoing it."],
+ ["Revert","A new PR that exactly undoes an earlier merged PR. Used only if a story is abandoned, DEV is broken, or another cut is blocked."],
+ ["Drift","main moving ahead of PROD because merged PRs haven't been released yet."],
+];
+
+/* ============ model ============ */
+const STAGES = [
+ {id:"g0", head:"GATE 0", title:"Feature test", gate:"g0"},
+ {id:"g1", head:"GATE 1", title:"Pull request", gate:"g1"},
+ {id:"dev", head:"AUTOMATIC", title:"Merge → DEV", gate:"dev"},
+ {id:"g2", head:"GATE 2", title:"Release cut", gate:"g2"},
+ {id:"qa", head:"AUTOMATIC", title:"QA", gate:"qa"},
+ {id:"g3", head:"GATE 3", title:"UAT", gate:"g3"},
+ {id:"g4", head:"GATE 4", title:"Change request", gate:"g4"},
+ {id:"g5", head:"GATE 5", title:"PROD", gate:"g5"},
+];
+const LANES = [
+ {id:"dev", label:"Developer", sub:"builds, tests, cuts", color:"--dev"},
+ {id:"auto", label:"GitHub Actions", sub:"automatic", color:"--auto"},
+ {id:"ppl", label:"People", sub:"tech lead · QA · business · RM", color:"--ppl"},
+ {id:"env", label:"Azure", sub:"where it runs", color:"--env"},
+];
+/* each node: id, stage index, lane index, title, sub{all,adf,dbx,sql}, tip, who, details{all,adf,dbx,sql}: array of bullets */
+const N = [
+ {id:"build", s:0, l:0, title:"Build on branch",
+  sub:{all:"feature/AB#5710", adf:"pipeline JSON in adf/", dbx:"jobs + notebooks", sql:"tables + MERGE files"},
+  who:"Developer", tip:"Create feature/AB#<story>-… and make the change.",
+  d:{all:["Branch from main: feature/AB#5710-sap-sales.","Change ADF pipelines, Databricks code and SQL config together when the story needs it.","Environment values go in settings/<env>.json, never hardcoded."],
+     adf:["Edit pipelines, datasets and linked services under adf/ (ADF Studio in Git mode writes JSON to the branch).","Pipelines that read config take the configDb parameter."],
+     dbx:["Edit notebooks, jobs and bundle resources under databricks/.","Catalog and paths come from bundle variables per target."],
+     sql:["Schema objects in sqlconfig/Tables, Procs, Views.","Config rows: one MERGE file per key in sqlconfig/Data/<area>/<KEY>.sql, e.g. SAP_SALES.sql.","Values that differ per environment (source server, storage) are SQLCMD variables like $(SourceServer)."]}},
+ {id:"fenv", s:0, l:1, title:"feature-env",
+  sub:{all:"own test space", adf:"nothing to build", dbx:"developer deploys bundle", sql:"copy DEV DB → ft-5710"},
+  who:"GitHub Actions (on push)", tip:"Gives the branch its own isolated test space.",
+  d:{all:["Runs on every push to feature/** or bugfix/**.","Creates what the branch needs to be tested alone; never touches shared DEV."],
+     adf:["ADF needs no build: the DEV factory in Git mode reads the branch directly.","If the change needs new config, the SQL feature DB copy is created too."],
+     dbx:["The developer runs databricks bundle deploy -t dev.","Development mode prefixes jobs with [dev priya] and uses schema dev_priya."],
+     sql:["az sql db copy: sqldb-etlcfg-dev → sqldb-etlcfg-ft-5710 in the feature elastic pool.","Builds the branch DACPAC and publishes it to the copy with DEV SQLCMD values.","Grants the developers group write access on the copy; prints the configDb to use."]}},
+ {id:"fspace", s:0, l:3, title:"Feature test space",
+  sub:{all:"isolated per branch", adf:"DEV factory · Git mode", dbx:"[dev priya] jobs", sql:"sqldb-etlcfg-ft-5710"},
+  who:"Azure (DEV subscription)", tip:"Where the branch is tested end-to-end. Evidence: a successful debug run ID.",
+  d:{all:["ADF Debug runs the branch's pipeline with configDb = sqldb-etlcfg-ft-5710 and outputs to a per-branch folder.","The run must succeed; its run ID becomes Gate 0 evidence."],
+     adf:["Debug in ADF Studio on the branch; copy the run ID from Output or Monitor → Debug.","Debug proves logic; triggers and production volume are proven later in QA."],
+     dbx:["Jobs run in the developer's own space and schema.","ADF debug points its notebook/job parameter at the developer's bundle."],
+     sql:["The copy is a snapshot of DEV including watermarks: reset a watermark to test a real load.","Watermarks move only in the copy; nothing flows back at merge.","Long-lived branch? Re-run feature-env to refresh a stale copy."]}},
+ {id:"pr", s:1, l:0, title:"Open PR to main",
+  sub:{all:"AB# · run ID · notes", adf:"AB# · run ID · notes", dbx:"AB# · run ID · notes", sql:"+ Rollback note"},
+  who:"Developer", tip:"PR template: AB#, Feature-Test-Run, Release-Note, Depends-On, Rollback.",
+  d:{all:["AB#5710","Feature-Test-Run: <ADF debug run ID>","Release-Note: one line for the release and CR","Depends-On: none or #<pr>","Rollback: how to undo (required for config/schema changes)"],
+     adf:["Rollback: usually redeploy previous build; note any linked-service changes."],
+     dbx:["Rollback: redeploy previous bundle version."],
+     sql:["Rollback must say how to remove config rows or schema changes (e.g. delete row SAP_SALES)."]}},
+ {id:"checks", s:1, l:1, title:"PR checks (10)",
+  sub:{all:"all must pass", adf:"ADF validate", dbx:"bundle validate", sql:"DACPAC build"},
+  who:"GitHub Actions (pr-validation)", tip:"Ten blocking checks, including ADF API verification of the run ID.",
+  d:{all:["1 Description follows the template","2 Linked story (AB#)","3 Feature-Test-Run verified with the ADF API: succeeded","4 Tech lead approval (CODEOWNERS)","5 Builds: ADF validate, bundle validate, DACPAC build, tests, settings keys match","6 No secrets or hardcoded environment values","7 Release-Note","8 Depends-On","9 Rollback note for config/schema","10 Up to date with main, comments resolved, squash only"],
+     adf:["ADF validate with the ADF utilities npm package against the DEV factory.","Naming standards (pl_, ds_, ls_, tr_)."],
+     dbx:["databricks bundle validate -t dev.","Unit tests for notebook code where present."],
+     sql:["dotnet build of the SQL project produces the DACPAC; a broken reference fails the PR.","Scan blocks hardcoded server names in MERGE files.","settings/dev|qa|uat|prod.json must have identical keys."]}},
+ {id:"lead", s:1, l:2, title:"Tech lead approves",
+  sub:{all:"CODEOWNER review", adf:"CODEOWNER review", dbx:"CODEOWNER review", sql:"CODEOWNER review"},
+  who:"Tech lead", tip:"Author can't approve own PR; new pushes reset approval.",
+  d:{all:["Reviews design, standards and the test evidence.","The author cannot approve their own PR.","Any new push after approval resets it.","Then: squash merge only."]}},
+ {id:"merge", s:2, l:1, title:"Merge → deploy-dev",
+  sub:{all:"DEV updated", adf:"ARM → DEV factory", dbx:"bundle → DEV", sql:"DACPAC → DEV DB"},
+  who:"GitHub Actions (deploy-dev)", tip:"One commit on main; DEV deployed in order; feature DB dropped.",
+  d:{all:["The PR becomes one commit on main.","deploy-dev runs the standard order: SQL config → Unity Catalog → Databricks → ADF.","feature-cleanup drops the feature DB.","Nothing moves to QA until a developer lists the PR in a release."],
+     adf:["Export ARM from main, stop triggers, deploy, clean up, start triggers on the DEV factory."],
+     dbx:["databricks bundle deploy -t dev under the shared root."],
+     sql:["sqlpackage publishes the DACPAC to sqldb-etlcfg-dev with DEV SQLCMD values.","sqldb-etlcfg-ft-5710 is dropped."]}},
+ {id:"devenv", s:2, l:3, title:"DEV",
+  sub:{all:"integration", adf:"adf-…-dev", dbx:"DEV workspace", sql:"sqldb-etlcfg-dev"},
+  who:"Azure DEV", tip:"Integration of everything merged; not the first test.",
+  d:{all:["Contains every merged PR, including ones not yet released (drift).","Used to check that merged changes work together."]}},
+ {id:"cutreq", s:3, l:0, title:"Preview → confirm",
+  sub:{all:"pr_list = 1256,1242", adf:"pr_list = 1256", dbx:"pr_list = 1240", sql:"pr_list = 1242"},
+  who:"Any developer (own PRs)", tip:"Run release with confirm=false to preview, then confirm=true.",
+  d:{all:["Run the release workflow with the PR numbers.","confirm=false shows each PR's title, story, author and files; nothing is cut.","Re-run with confirm=true to cut."]}},
+ {id:"cut", s:3, l:1, title:"Queue, guards, cut",
+  sub:{all:"build once", adf:"ARM template", dbx:"bundle artifact", sql:"DACPAC artifact"},
+  who:"GitHub Actions (release)", tip:"Refused if a release is in progress. Cherry-pick by PR onto prod/<last>.",
+  d:{all:["Refused while another release is in progress (queue).","Failed-QA/UAT label blocks a PR unless its fix is listed; teammate's PR warns.","Merged, squash, linked, not in PROD, no missing dependency, clean cherry-pick.","release/<id> + manifest; built once; CR text generated."],
+     adf:["Build: ARM template exported from the release branch."],
+     dbx:["Build: bundle packaged from the release branch."],
+     sql:["Build: DACPAC + post-deploy MERGE scripts from the release branch.","One MERGE file per key keeps cherry-picks conflict-free."]}},
+ {id:"qadeploy", s:4, l:1, title:"Deploy QA",
+  sub:{all:"automatic · no approval", adf:"ARM → QA factory", dbx:"bundle -t qa", sql:"DACPAC → QA DB"},
+  who:"GitHub Actions", tip:"Deploys right after the cut. No approval step.",
+  d:{all:["Same build, standard order.","Stories move to In QA.","The queue means nothing else can overwrite QA now."]}},
+ {id:"qaenv", s:4, l:3, title:"QA",
+  sub:{all:"QA environment", adf:"adf-…-qa", dbx:"QA workspace", sql:"sqldb-etlcfg-qa"},
+  who:"Azure QA", tip:"First place triggers, the QA integration runtime and volume are exercised.",
+  d:{all:["QA-specific values from settings/qa.json (e.g. QA reads the test source)."],
+     sql:["Config rows get QA values through SQLCMD variables: e.g. $(SourceServer) = test source."]}},
+ {id:"qatest", s:4, l:2, title:"QA tests",
+  sub:{all:"functional + regression", adf:"pipelines run", dbx:"jobs run", sql:"config verified"},
+  who:"QA team", tip:"If a story fails, the release is dropped and re-cut without it.",
+  d:{all:["Functional and regression testing.","A failing story: drop the release, label the PR failed-qa, re-cut the passing PRs."]}},
+ {id:"uatok", s:5, l:2, title:"QA lead approves",
+  sub:{all:"Review deployments: uat", adf:"Review deployments", dbx:"Review deployments", sql:"Review deployments"},
+  who:"QA lead", tip:"Approving the uat deployment IS the QA sign-off.",
+  d:{all:["The release run pauses at the uat environment.","The QA lead clicks Review deployments → Approve; GitHub records who and when."]}},
+ {id:"uatdeploy", s:5, l:1, title:"Deploy UAT",
+  sub:{all:"same build", adf:"ARM → UAT factory", dbx:"bundle -t uat", sql:"DACPAC → UAT DB"},
+  who:"GitHub Actions", tip:"Identical build to QA. Stories → In UAT.",
+  d:{all:["Same build, standard order, UAT values.","Business users test; the business owner signs off."]}},
+ {id:"uatenv", s:5, l:3, title:"UAT",
+  sub:{all:"business testing", adf:"adf-…-uat", dbx:"UAT workspace", sql:"sqldb-etlcfg-uat"},
+  who:"Azure UAT", tip:"UAT reads the UAT source; business owner signs off.",
+  d:{all:["Business acceptance testing.","Named business owner signs off (recorded on stories or the CR)."]}},
+ {id:"cr", s:6, l:2, title:"CR check (manual)",
+  sub:{all:"approved · window · PRs", adf:"approved · window · PRs", dbx:"approved · window · PRs", sql:"approved · window · PRs"},
+  who:"Release manager", tip:"Raised and checked by hand in ServiceNow. No integration.",
+  d:{all:["Raise the CR during UAT from the generated CR text.","Before PROD confirm: approved, inside window, lists exactly the release's PRs, business sign-off recorded.","Then run deploy-prod with the CHG number and cr_checked=true."]}},
+ {id:"prodok", s:7, l:2, title:"Approve prod",
+  sub:{all:"release manager", adf:"release manager", dbx:"release manager", sql:"release manager"},
+  who:"Release manager", tip:"deploy-prod refuses a stale baseline, then waits for this approval.",
+  d:{all:["deploy-prod checks the release passed UAT and its baseline is still the latest prod/* tag.","Pauses at the prod environment until a release manager approves."]}},
+ {id:"proddeploy", s:7, l:1, title:"Deploy PROD · tag",
+  sub:{all:"prod/R2026.11.01", adf:"ARM → PROD factory", dbx:"bundle -t prod", sql:"DACPAC → PROD DB"},
+  who:"GitHub Actions (deploy-prod)", tip:"Same build. Tag prod/<id>, stories Closed, queue free.",
+  d:{all:["Standard order with PROD values.","Tag prod/<id> with the CR number; stories Closed; queue free.","Release manager closes the CR by hand."]}},
+ {id:"prodenv", s:7, l:3, title:"PROD",
+  sub:{all:"production", adf:"adf-…-prod", dbx:"PROD workspace", sql:"sqldb-etlcfg-prod"},
+  who:"Azure PROD", tip:"What QA and UAT tested is exactly what runs here.",
+  d:{all:["Rollback = redeploy the previous prod/* build (plus explicit SQL backout if data was changed)."]}},
+];
+const PATH = ["build","fenv","fspace","pr","checks","lead","merge","devenv","cutreq","cut","qadeploy","qaenv","qatest","uatok","uatdeploy","uatenv","cr","prodok","proddeploy","prodenv"];
+const EDGE_LABEL = {"build>fenv":"push","fenv>fspace":"ready","fspace>pr":"run ID","pr>checks":"validate","checks>lead":"green","lead>merge":"approved","merge>devenv":"deploy","devenv>cutreq":"list PRs","cutreq>cut":"confirm","cut>qadeploy":"auto","qadeploy>qaenv":"deploy","qaenv>qatest":"test","qatest>uatok":"passed","uatok>uatdeploy":"approved","uatdeploy>uatenv":"deploy","uatenv>cr":"signed off","cr>prodok":"checked","prodok>proddeploy":"approved","proddeploy>prodenv":"deploy"};
+
+const GATES = [
+ {id:"all", label:"All gates (overview)", stages:STAGES.map(s=>s.id), who:"Everyone",
+  sum:"From a developer's branch to PROD: test on the branch, review the PR, merge to DEV, cut a release from chosen PRs, QA automatically, UAT on the QA lead's approval, a manual CR check, and the release manager's PROD approval.",
+  checks:["Gate 0 Feature test: own test space, successful debug run","Gate 1 PR: ten checks + tech lead","Merge → DEV automatic","Gate 2 Cut: queue, guards, validations, build once","QA automatic, no approval","Gate 3 UAT: QA lead approval, business sign-off","Gate 4 CR: checked by hand","Gate 5 PROD: release manager approval, tag"]},
+ {id:"g0", label:"Gate 0 · Feature test", stages:["g0"], who:"Developer",
+  sum:"Prove the change works end-to-end on the feature branch, isolated from everyone else, before anyone reviews it.",
+  checks:["Own config DB copy (if SQL config changes): DEV snapshot + branch scripts","Own Databricks bundle in development mode","ADF debug on the branch against the copy","Run succeeded → copy the run ID"]},
+ {id:"g1", label:"Gate 1 · Pull request", stages:["g1"], who:"Developer · GitHub Actions · Tech lead",
+  sum:"Only reviewed, tested, traceable changes reach main. Ten checks must pass and the tech lead must approve.",
+  checks:["Template · AB# story · verified run ID","Tech lead (CODEOWNER), not the author","Builds and tests pass; settings keys match","No secrets or hardcoded values","Release-Note · Depends-On · Rollback","Up to date, comments resolved, squash merge"]},
+ {id:"dev", label:"Merge → DEV (automatic)", stages:["dev"], who:"GitHub Actions",
+  sum:"Every merge deploys DEV in the standard order and drops the feature DB. DEV is an integration check, not the first test.",
+  checks:["Squash merge = one commit on main","deploy-dev: SQL config → UC → Databricks → ADF","Feature DB dropped","PR waits on main until listed in a release"]},
+ {id:"g2", label:"Gate 2 · Release cut", stages:["g2"], who:"Any developer · GitHub Actions",
+  sum:"A release is a list of PRs. Preview first, then confirm. Refused while another release is in progress.",
+  checks:["Queue free (one release at a time)","Failed-PR label blocks unless fix listed; ownership warns","Merged · squash · linked · not in PROD","No missing dependency, clean cherry-pick onto prod/<last>","release/<id> + manifest, built once, CR text generated"]},
+ {id:"qa", label:"QA (automatic, no approval)", stages:["qa"], who:"GitHub Actions · QA team",
+  sum:"The release deploys to QA right after the cut. QA tests; a failing story means drop and re-cut without it.",
+  checks:["Same build, QA values","Stories → In QA","Fail a story → drop release, label PR failed-qa, re-cut passing PRs"]},
+ {id:"g3", label:"Gate 3 · UAT", stages:["g3"], who:"QA lead · Business owner",
+  sum:"The QA lead's approval of the UAT deployment is the QA sign-off. Business users test and the business owner signs off.",
+  checks:["QA lead: Review deployments → approve uat","Same build to UAT; stories → In UAT","Business owner signs off","CR raised by hand during UAT"]},
+ {id:"g4", label:"Gate 4 · Change request", stages:["g4"], who:"Release manager",
+  sum:"No ServiceNow integration. The release manager raises the CR from the generated text and checks it by hand.",
+  checks:["CR approved","Inside its change window","Lists exactly the release's PRs","Business sign-off recorded","Run deploy-prod with the CHG number"]},
+ {id:"g5", label:"Gate 5 · PROD", stages:["g5"], who:"Release manager · GitHub Actions",
+  sum:"deploy-prod refuses a stale baseline, waits for the release manager's approval, deploys the same build, tags prod/<id> and frees the queue.",
+  checks:["Baseline is still the latest prod/* tag","Release manager approves prod","Deploy same build, standard order","Tag prod/<id> with the CR number; stories Closed; queue free","Close the CR by hand"]},
+];
+
+const INSIDE = {
+ all:{title:"Inside a deployment (every environment)", lead:"One build, always in this order:", steps:[
+   ["Azure SQL config","DACPAC + config MERGE rows, values from settings/<env>.json"],["Unity Catalog","DDL not managed by the bundle"],["Databricks","databricks bundle deploy -t <env>"],["ADF","stop triggers → ARM deploy → clean up → start triggers"]]},
+ adf:{title:"Inside an ADF deployment", lead:"ARM template exported once from the release branch, then per environment:", steps:[
+   ["Pre-deploy script","stop triggers in the target factory"],["ARM deployment","incremental, with arm-parameters/<env>.json from settings"],["Post-deploy script","delete objects removed in Git"],["Start triggers","pipelines resume on schedule"]]},
+ dbx:{title:"Inside a Databricks deployment", lead:"Bundle from the release branch, per environment:", steps:[
+   ["Authenticate","GitHub OIDC → managed identity → workspace service principal"],["bundle validate","targets, variables, permissions"],["bundle deploy -t <env>","jobs, notebooks, pipelines in production mode"],["Permissions","run_as service principal; factory MI can run jobs"]]},
+ sql:{title:"Inside an Azure SQL DB deployment", lead:"sqlpackage publishes the DACPAC to sqldb-etlcfg-<env>:", steps:[
+   ["Read target","connect with the environment's managed identity (Entra)"],["Compare","DACPAC schema vs the live database → change script"],["Safety check","BlockOnPossibleDataLoss stops anything that could delete data"],["Pre-deploy","optional script before schema changes"],["Schema changes","create/alter tables, procs, views"],["Post-deploy MERGE","config rows inserted/updated; $(SourceServer) etc. from settings/<env>.json"],["Untouched","runtime tables (watermarks, run logs) keep their rows"]]},
+};
+
+/* ============ state ============ */
+const st = { gate:"all", type:"all", playing:!matchMedia("(prefers-reduced-motion: reduce)").matches, speed:1, idx:0, t:0, tour:null };
+const $ = s=>document.querySelector(s);
+const esc = s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ============ geometry ============ */
+const LW=150, SW=172, NW=142, NH=72, HEAD=62, LH=132;
+const W = LW + STAGES.length*SW + 10, H = HEAD + LANES.length*LH + 12;
+const nodeXY = n => ({x: LW + n.s*SW + (SW-NW)/2, y: HEAD + n.l*LH + (LH-NH)/2});
+const byId = Object.fromEntries(N.map(n=>[n.id,n]));
+function occupied(s,l){ return N.some(n=>n.s===s && n.l===l); }
+function edgePath(a,b){
+  const A=nodeXY(a), B=nodeXY(b);
+  if(a.s===b.s){
+    const down = b.l>a.l;
+    let blocked=false; for(let l=Math.min(a.l,b.l)+1;l<Math.max(a.l,b.l);l++) if(occupied(a.s,l)) blocked=true;
+    if(blocked){ // detour on the right side of the column
+      const x1=A.x+NW, y1=A.y+NH/2, x2=B.x+NW, y2=B.y+NH/2, cx=x1+13;
+      return `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`;
+    }
+    const x=A.x+NW/2, y1= down? A.y+NH : A.y, y2 = down? B.y : B.y+NH;
+    return `M${x},${y1} L${x},${y2}`;
+  }
+  const x1=A.x+NW, y1=A.y+NH/2, x2=B.x, y2=B.y+NH/2, dx=Math.max(30,(x2-x1)/2);
+  return `M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`;
+}
+
+/* ============ draw ============ */
+const svg=$("#flow");
+function draw(){
+  const NS="http://www.w3.org/2000/svg";
+  let h=`<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>`;
+  svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
+  LANES.forEach((ln,i)=>{
+    const y=HEAD+i*LH;
+    h+=`<rect class="lane-bg ${i%2?"alt":""}" x="0" y="${y}" width="${W}" height="${LH}"/>`;
+    h+=`<rect x="0" y="${y}" width="5" height="${LH}" fill="var(${ln.color})"/>`;
+    h+=`<text class="lane-label" x="16" y="${y+LH/2-4}">${ln.label}</text><text class="lane-sub" x="16" y="${y+LH/2+13}">${ln.sub}</text>`;
+  });
+  STAGES.forEach((s,i)=>{
+    const x=LW+i*SW;
+    h+=`<rect class="stage-col" data-stage="${s.id}" x="${x}" y="0" width="${SW}" height="${H}"/>`;
+    h+=`<line class="gridline" x1="${x}" y1="0" x2="${x}" y2="${H}"/>`;
+    h+=`<text class="stage-head" x="${x+12}" y="24">${s.head}</text><text class="stage-title" x="${x+12}" y="44">${s.title}</text>`;
+  });
+  for(let i=0;i<PATH.length-1;i++){
+    const a=byId[PATH[i]], b=byId[PATH[i+1]], k=`${a.id}>${b.id}`;
+    h+=`<path class="edge" id="e_${i}" data-a="${a.id}" data-b="${b.id}" d="${edgePath(a,b)}" marker-end="url(#arr)"/>`;
+  }
+  N.forEach(n=>{
+    const {x,y}=nodeXY(n), ln=LANES[n.l];
+    h+=`<g class="node" id="n_${n.id}" data-id="${n.id}" tabindex="0" role="button" aria-label="${esc(n.title)}">
+      <rect class="box" x="${x}" y="${y}" width="${NW}" height="${NH}" stroke="var(${ln.color})"/>
+      <rect class="bar" x="${x}" y="${y}" width="5" height="${NH}" fill="var(${ln.color})"/>
+      <text class="t" x="${x+13}" y="${y+24}">${esc(n.title)}</text>
+      <text class="s" x="${x+13}" y="${y+42}" data-sub="1"></text>
+      <text class="s" x="${x+13}" y="${y+58}" data-who="1">${esc(n.who.replace(/ \(.*\)$/,"").length>23?n.who.replace(/ \(.*\)$/,"").slice(0,22)+"…":n.who.replace(/ \(.*\)$/,""))}</text>
+      <circle class="pulse" cx="${x+NW/2}" cy="${y+NH/2}" r="${NW/2}"/></g>`;
+  });
+  h+=`<circle class="token" id="token" r="6" cx="-20" cy="-20"/>`;
+  svg.innerHTML=h;
+  // edge labels (after paths exist so we can measure)
+  let lab="";
+  for(let i=0;i<PATH.length-1;i++){
+    const p=document.getElementById("e_"+i), L=p.getTotalLength(), m=p.getPointAtLength(L/2), k=`${PATH[i]}>${PATH[i+1]}`;
+    const A_=byId[PATH[i]], B_=byId[PATH[i+1]], detour = A_.s===B_.s && Math.abs(A_.l-B_.l)>1;
+    const txt=EDGE_LABEL[k]||""; if(!txt || L<70 || detour) continue;
+    const w=txt.length*6.2+12;
+    lab+=`<g class="elabel" data-e="${i}"><rect x="${m.x-w/2}" y="${m.y-9}" width="${w}" height="16" rx="8" fill="var(--surface)" stroke="var(--line)"/><text x="${m.x}" y="${m.y+3}" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--muted)">${txt}</text></g>`;
+  }
+  const g=document.createElementNS(NS,"g"); g.innerHTML=lab; svg.insertBefore(g, document.getElementById("n_build"));
+}
+
+/* ============ apply view ============ */
+function apply(){
+  const gate=GATES.find(g=>g.id===st.gate), sel=new Set(gate.stages), all=st.gate==="all";
+  document.querySelectorAll(".stage-col").forEach(r=>r.classList.toggle("sel", !all && sel.has(r.dataset.stage)));
+  N.forEach(n=>{
+    const el=document.getElementById("n_"+n.id), inGate = all || sel.has(STAGES[n.s].id);
+    el.classList.toggle("dim", !inGate);
+    el.querySelector("[data-sub]").textContent = n.sub[st.type] || n.sub.all;
+  });
+  for(let i=0;i<PATH.length-1;i++){
+    const a=byId[PATH[i]], b=byId[PATH[i+1]], on = all || sel.has(STAGES[a.s].id) || sel.has(STAGES[b.s].id);
+    const e=document.getElementById("e_"+i); e.classList.toggle("dim",!on);
+    const lb=document.querySelector(`.elabel[data-e="${i}"]`); if(lb) lb.style.opacity = on?1:.2;
+  }
+  renderExplain(gate); renderInside();
+  // restrict token loop to the gate's edges
+  st.loop = edgesFor(gate); if(!st.loop.includes(st.idx)){ st.idx=st.loop[0]; st.t=0; }
+}
+function edgesFor(gate){
+  if(gate.id==="all") return [...Array(PATH.length-1).keys()];
+  const sel=new Set(gate.stages), out=[];
+  for(let i=0;i<PATH.length-1;i++){ const a=byId[PATH[i]], b=byId[PATH[i+1]]; if(sel.has(STAGES[a.s].id) || (sel.has(STAGES[b.s].id))) out.push(i); }
+  return out.length?out:[0];
+}
+const TYPE_NAME={all:"all three",adf:"ADF only",dbx:"Databricks only",sql:"Azure SQL DB only"};
+function renderExplain(g){
+  const extra = st.type==="all" ? "" : `<p style="margin:0" class="lede">Showing <b>${TYPE_NAME[st.type]}</b>: box subtitles and popups show what this gate means for that deployment type.</p>`;
+  $("#explain").innerHTML=`<div class="eb">${g.id==="all"?"Overview":"Explaining"}</div><h2>${esc(g.label)}</h2>
+   <div class="who"><span class="pill ok">${esc(g.who)}</span></div>
+   <p style="margin:0">${gloss(esc(g.sum))}</p>${extra}
+   <ol>${g.checks.map(c=>`<li>${gloss(esc(c))}</li>`).join("")}</ol>`;
+}
+let insideTimer=null, insideStep=0;
+function renderInside(){
+  const I=INSIDE[st.type];
+  $("#inside").innerHTML=`<div class="eb">Deployment detail · ${TYPE_NAME[st.type]}</div><h2>${esc(I.title)}</h2><p style="margin:0" class="lede">${gloss(esc(I.lead))}</p>
+   <div class="steps" id="isteps">${I.steps.map((s,i)=>`<div class="step" data-i="${i}"><span class="n">${String(i+1).padStart(2,"0")}</span><b>${esc(s[0])}</b><span class="d">${gloss(esc(s[1]))}</span></div>`).join("")}</div>`;
+  insideStep=0; clearInterval(insideTimer);
+  const tickI=()=>{ const els=[...document.querySelectorAll("#isteps .step")]; els.forEach((e,i)=>{ e.classList.toggle("done", i<insideStep); e.classList.toggle("now", i===insideStep); }); insideStep=(insideStep+1)%(els.length+1); };
+  tickI(); if(st.playing) insideTimer=setInterval(tickI, 1400/st.speed);
+}
+/* wrap known terms with hover definitions */
+const GL_TERMS=[["squash merge","Squash merge"],["squash","Squash merge"],["cherry-pick","Cherry-pick"],["CODEOWNER","CODEOWNERS"],["DACPAC","DACPAC"],["SQLCMD","SQLCMD variable"],["MERGE","MERGE (idempotent)"],["BlockOnPossibleDataLoss","BlockOnPossibleDataLoss"],["manifest","Manifest"],["queue","Release queue"],["ARM","ARM template"],["OIDC","OIDC / federated credential"],["watermarks","Runtime tables / watermark"],["CR","CR (change request)"],["AB#","AB# (Azure Boards link)"],["run ID","Feature-Test-Run"],["bundle","Databricks Asset Bundle (DAB)"],["development mode","Development mode"],["Unity Catalog","Unity Catalog (UC)"]];
+function gloss(html){
+  let out=html, used=new Set();
+  for(const [term,key] of GL_TERMS){
+    if(used.has(key)) continue;
+    const re=new RegExp(`(^|[^\\w#>])(${term.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")})(?![\\w])`,"i");
+    const def=DEFS.find(d=>d[0]===key); if(!def) continue;
+    if(re.test(out)){ out=out.replace(re,(m,p,t)=>`${p}<abbr class="g" title="${esc(def[1])}">${t}</abbr>`); used.add(key); }
+  }
+  return out;
+}
+
+/* ============ animation ============ */
+let last=0;
+function frame(ts){
+  const dt=Math.min(50, ts-(last||ts)); last=ts;
+  if(st.playing){
+    const p=document.getElementById("e_"+st.idx); if(p){
+      const L=p.getTotalLength(); st.t += dt*0.12*st.speed;
+      if(st.t>=L){ const k=st.loop.indexOf(st.idx); st.idx = st.loop[(k+1)%st.loop.length]; st.t=0; flash(byId[PATH[st.idx]]); }
+      const pt=p.getPointAtLength(Math.min(st.t,L)); const tk=$("#token"); tk.setAttribute("cx",pt.x); tk.setAttribute("cy",pt.y);
+      document.querySelectorAll(".edge.on").forEach(e=>e.classList.remove("on")); p.classList.add("on");
+      document.querySelectorAll(".node.active").forEach(e=>e.classList.remove("active"));
+      const tgt=document.getElementById("n_"+PATH[st.idx+1]); if(tgt) tgt.classList.add("active");
+    }
+  }
+  requestAnimationFrame(frame);
+}
+function flash(n){ const c=document.querySelector(`#n_${n.id} .pulse`); if(!c||!c.animate) return; c.animate([{opacity:.7,transform:"scale(.6)"},{opacity:0,transform:"scale(1)"}],{duration:700,easing:"ease-out"}); c.style.transformOrigin="center"; c.style.transformBox="fill-box"; }
+
+/* ============ tooltip + popup ============ */
+const tip=$("#tip"), pop=$("#pop");
+svg.addEventListener("pointermove", e=>{
+  const g=e.target.closest(".node"); if(!g){ tip.hidden=true; return; }
+  const n=byId[g.dataset.id];
+  tip.innerHTML=`<b>${esc(n.title)}</b>${esc(n.tip)}<br><span style="opacity:.75">${esc(n.who)} · click for details</span>`;
+  tip.hidden=false;
+  const x=Math.min(e.clientX+14, innerWidth-tip.offsetWidth-10), y=Math.min(e.clientY+16, innerHeight-tip.offsetHeight-10);
+  tip.style.left=x+"px"; tip.style.top=y+"px";
+});
+svg.addEventListener("pointerleave", ()=>tip.hidden=true);
+svg.addEventListener("click", e=>{ const g=e.target.closest(".node"); if(g) openPop(byId[g.dataset.id], g); });
+svg.addEventListener("keydown", e=>{ if((e.key==="Enter"||e.key===" ") && e.target.closest(".node")){ e.preventDefault(); const g=e.target.closest(".node"); openPop(byId[g.dataset.id], g); } });
+function openPop(n, g){
+  tip.hidden=true;
+  const stage=STAGES[n.s], typed = n.d[st.type] && st.type!=="all";
+  $("#popTitle").textContent=n.title;
+  $("#popBody").innerHTML=`<dl class="kv"><dt>Stage</dt><dd>${stage.head} · ${esc(stage.title)}</dd><dt>Who</dt><dd>${esc(n.who)}</dd><dt>Type</dt><dd>${TYPE_NAME[st.type]}</dd></dl>
+    <div><b>What happens</b><ul>${n.d.all.map(x=>`<li>${gloss(esc(x))}</li>`).join("")}</ul></div>
+    ${typed?`<div><b>For ${TYPE_NAME[st.type]}</b><ul>${n.d[st.type].map(x=>`<li>${gloss(esc(x))}</li>`).join("")}</ul></div>`:""}
+    ${st.type==="all"?Object.entries({adf:"ADF",dbx:"Databricks",sql:"Azure SQL DB"}).filter(([k])=>n.d[k]).map(([k,l])=>`<div><b>${l}</b><ul>${n.d[k].map(x=>`<li>${gloss(esc(x))}</li>`).join("")}</ul></div>`).join(""):""}`;
+  pop.hidden=false;
+  if(!pop.dataset.moved){
+    const r=g.getBoundingClientRect();
+    let x=r.right+12, y=r.top;
+    if(x+pop.offsetWidth>innerWidth-10) x=Math.max(10, r.left-pop.offsetWidth-12);
+    y=Math.max(10, Math.min(y, innerHeight-pop.offsetHeight-10));
+    pop.style.left=x+"px"; pop.style.top=y+"px";
+  }
+  $("#popClose").focus({preventScroll:true});
+}
+$("#popClose").addEventListener("click", ()=>{ pop.hidden=true; delete pop.dataset.moved; });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ pop.hidden=true; delete pop.dataset.moved; $("#defsPanel").hidden=true; $("#defsBtn").setAttribute("aria-expanded","false"); } });
+/* drag the popup by its header (mouse, pen or touch) */
+(function(){
+  const head=$("#popHead"); let sx=0, sy=0, ox=0, oy=0, drag=false;
+  head.addEventListener("pointerdown", e=>{ if(e.target.closest(".x")) return; drag=true; head.setPointerCapture(e.pointerId); sx=e.clientX; sy=e.clientY; ox=pop.offsetLeft; oy=pop.offsetTop; });
+  head.addEventListener("pointermove", e=>{ if(!drag) return; const x=Math.max(0,Math.min(innerWidth-60, ox+e.clientX-sx)), y=Math.max(0,Math.min(innerHeight-40, oy+e.clientY-sy)); pop.style.left=x+"px"; pop.style.top=y+"px"; pop.dataset.moved="1"; });
+  const end=()=>{ drag=false; }; head.addEventListener("pointerup",end); head.addEventListener("pointercancel",end);
+  head.addEventListener("keydown", e=>{ const step=e.shiftKey?40:12; const m={ArrowLeft:[-step,0],ArrowRight:[step,0],ArrowUp:[0,-step],ArrowDown:[0,step]}[e.key]; if(!m) return; e.preventDefault(); pop.style.left=(pop.offsetLeft+m[0])+"px"; pop.style.top=(pop.offsetTop+m[1])+"px"; pop.dataset.moved="1"; });
+  head.tabIndex=0; head.setAttribute("aria-label","Drag to move, or use arrow keys");
+})();
+
+/* ============ definitions panel ============ */
+function renderDefs(q=""){
+  const qq=q.trim().toLowerCase();
+  $("#defsList").innerHTML=DEFS.filter(d=>!qq || (d[0]+" "+d[1]).toLowerCase().includes(qq)).map(d=>`<div class="def"><b>${esc(d[0])}</b><p>${esc(d[1])}</p></div>`).join("") || '<p class="lede">No matching term.</p>';
+}
+$("#defsBtn").addEventListener("click", ()=>{ const p=$("#defsPanel"); p.hidden=!p.hidden; $("#defsBtn").setAttribute("aria-expanded", String(!p.hidden)); if(!p.hidden) $("#defsSearch").focus(); });
+$("#defsClose").addEventListener("click", ()=>{ $("#defsPanel").hidden=true; $("#defsBtn").setAttribute("aria-expanded","false"); });
+$("#defsSearch").addEventListener("input", e=>renderDefs(e.target.value));
+
+/* ============ controls ============ */
+$("#gateSel").innerHTML=GATES.map(g=>`<option value="${g.id}">${g.label}</option>`).join("");
+$("#gateSel").addEventListener("change", e=>{ stopTour(); st.gate=e.target.value; apply(); });
+$("#typeSel").addEventListener("change", e=>{ st.type=e.target.value; apply(); if(!pop.hidden){ const n=byId[$("#popTitle").dataset.id||""]; } });
+$("#styleSel").addEventListener("change", e=>{ const v=e.target.value; if(v==="classic") document.documentElement.removeAttribute("data-style"); else document.documentElement.setAttribute("data-style",v); try{ localStorage.setItem("lf-style",v); }catch(err){} });
+$("#speedSel").addEventListener("change", e=>{ st.speed=+e.target.value; renderInside(); });
+$("#playBtn").addEventListener("click", ()=>{ st.playing=!st.playing; $("#playBtn").textContent=st.playing?"Pause":"Play"; renderInside(); });
+function stepGate(d){ const i=GATES.findIndex(g=>g.id===st.gate); const j=Math.max(0,Math.min(GATES.length-1,i+d)); st.gate=GATES[j].id; $("#gateSel").value=st.gate; apply(); }
+$("#prevBtn").addEventListener("click", ()=>{ stopTour(); stepGate(-1); });
+$("#nextBtn").addEventListener("click", ()=>{ stopTour(); stepGate(1); });
+function stopTour(){ if(st.tour){ clearInterval(st.tour); st.tour=null; $("#tourBtn").textContent="Gate tour"; } }
+$("#tourBtn").addEventListener("click", ()=>{
+  if(st.tour){ stopTour(); return; }
+  st.gate="g0"; $("#gateSel").value="g0"; apply(); st.playing=true; $("#playBtn").textContent="Pause";
+  $("#tourBtn").textContent="Stop tour";
+  st.tour=setInterval(()=>{ const i=GATES.findIndex(g=>g.id===st.gate); if(i>=GATES.length-1){ stopTour(); st.gate="all"; $("#gateSel").value="all"; apply(); return; } stepGate(1); }, 7000/st.speed);
+});
+try{ const sv=localStorage.getItem("lf-style"); if(sv && sv!=="classic"){ document.documentElement.setAttribute("data-style",sv); $("#styleSel").value=sv; } }catch(e){}
+
+draw(); apply(); renderDefs();
+$("#playBtn").textContent=st.playing?"Pause":"Play";
+if(!st.playing){ const p=document.getElementById("e_0"), pt=p.getPointAtLength(0); $("#token").setAttribute("cx",pt.x); $("#token").setAttribute("cy",pt.y); }
+requestAnimationFrame(frame);
+})();
+</script>

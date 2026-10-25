@@ -1,3 +1,23 @@
-<!doctype html><meta charset="utf-8"><title>Release Gate Simulator</title>
-<meta http-equiv="refresh" content="0; url=prototype/index.html">
-<p><a href="prototype/index.html">Open the Release Gate Simulator</a></p>
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shell Data Platform Release Demos</title>
+<style>
+:root{--bg:#f2f4f7;--surface:#fff;--ink:#14202b;--muted:#566473;--line:#d3dae2;--accent:#0d6970}
+@media (prefers-color-scheme: dark){:root{--bg:#0e141a;--surface:#151f29;--ink:#e3eaf1;--muted:#93a2b1;--line:#2a3744;--accent:#4cb2b9;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",system-ui,sans-serif;padding:32px max(16px,env(safe-area-inset-left))}
+main{max-width:880px;margin:0 auto;display:grid;gap:16px}
+h1{margin:0;font-size:28px} .eb{font:600 11px/1 ui-monospace,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+p{margin:0;color:var(--muted)}
+a.card{display:grid;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;color:inherit;text-decoration:none}
+a.card:hover{border-color:var(--accent)} a.card b{font-size:18px;color:var(--accent)}
+</style></head><body><main>
+<div class="eb">Shell data platform · ADF · Databricks · Azure SQL config DB</div>
+<h1>Release process demos</h1>
+<p>Live, interactive pages that run in any browser. Nothing here connects to GitHub, Azure, Databricks or ServiceNow.</p>
+<a class="card" href="live-flow/"><b>Release Live Flow</b><p>Every gate in one diagram with a moving token. Pick a gate, pick a deployment type (ADF, Databricks, Azure SQL DB), hover and click boxes for details, and open Definitions for terms.</p></a>
+<a class="card" href="release-control/"><b>Release Control</b><p>Act as developer, tech lead, QA lead, business owner or release manager and run releases through all gates, with guided scenarios.</p></a>
+<a class="card" href="docs/diagrams/archify/feature-to-cut.html"><b>Diagram: feature branch to release cut</b><p>Gates 0–2 (made with Archify).</p></a>
+<a class="card" href="docs/diagrams/archify/cut-to-prod.html"><b>Diagram: release cut to PROD</b><p>QA and Gates 3–5 (made with Archify).</p></a>
+<a class="card" href="prototype/"><b>Release Gate Simulator (earlier version)</b><p>The first simulator from the original demo. Superseded by Release Control.</p></a>
+</main></body></html>
