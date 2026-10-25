@@ -47,7 +47,7 @@ out.append("""
 | D-06 | GitHub + GitHub Actions; approvals via GitHub Environments (qa, uat, prod) | Team already uses GitHub |
 | D-07 | Release workflow takes a comma-separated `pr_list` input | Same model as the previous Azure DevOps process |
 | D-08 | Azure Boards stories linked by `AB#<id>`; the release moves story states | Stories live in Azure Boards |
-| D-09 | ServiceNow CR gate before PROD: approved, in window, CR PR list = manifest | Ties the CR to the exact PRs |
+| D-09 | CR gate before PROD: approved, in window, CR PR list = manifest (checked by hand, see D-27) | Ties the CR to the exact PRs |
 | D-10 | Reuse existing managed identities via OIDC federated credentials; no Azure secrets in GitHub | Admin requirement; identities must be user-assigned |
 | D-11 | Per-branch config DB copy `sqldb-etlcfg-ft-<id>` (copy of DEV + branch scripts), dropped on PR close | Config testable on the branch (§5.4) |
 | D-12 | Config data as one idempotent MERGE per key; runtime tables never deployed | Clean cherry-picks; protects environment state |
@@ -60,6 +60,12 @@ out.append("""
 | D-19 | GitHub org is on **GitHub Enterprise** (OQ-07 answered) | Environment approvals available for UAT and PROD |
 | D-20 | **Developers can cut a release** for their own PRs; not restricted to release managers | Empower developers; the queue prevents collisions |
 | D-21 | **Release queue**: one release in progress at a time (cut → PROD tag or dropped); a new cut is refused, not queued; every cut starts from the latest `prod/*` tag (§5.7a) | One QA environment; prevents QA overwrites and PROD going backwards |
+| D-22 | UAT defaults (to confirm): QA lead approves UAT; business owner signs off; CR raised during UAT; PROD only after business sign-off; UAT failure = drop and re-cut (§5.7d) | Current UAT practice unknown; standard defaults |
+| D-23 | Partial failure: drop the release, re-cut the passing PRs from the latest `prod/*` tag; the cut proves independence; the new build goes through QA again (§5.7c) | Good PRs keep moving without risk |
+| D-24 | Rework = new fix PR (same story, `Depends-On: #<old>`); old merged PR is never edited; next release lists both (§5.7c) | Squash-merged PRs are immutable; dependency check enforces it |
+| D-25 | Fix forward by default; revert only if the story is abandoned, it breaks DEV, or it blocks another cut; reverts via GitHub Revert + explicit config-row delete script (§5.7c) | Releases only take listed PRs, so bad PRs on main are contained |
+| D-26 | Cut guards: preview before cut (blocking), `failed-qa`/`failed-uat` label blocks a PR unless its fix is listed (blocking), ownership/sprint check (warning) (§5.7b) | Human error in picking PRs |
+| D-27 | **No ServiceNow integration.** CRs raised and approved by hand; release manager checks the CR before PROD and enters its number in `deploy-prod`; workflow generates the CR text (§5.8) | ServiceNow integration takes too long at Shell |
 
 ### 5.15 Things that are easy to get wrong
 
@@ -86,7 +92,7 @@ out.append("""
 ## 6. Open questions (answer in Phase 2 from evidence)
 """)
 out.append("| ID | Question | What it affects | Who can answer |\n|---|---|---|---|")
-for q in [q for q in OPEN if q[0] != "OQ-07"] + [("OQ-07","GitHub plan","ANSWERED 24 Oct 2026: GitHub Enterprise","Vamshi"),("OQ-09","Where do feature (debug) runs write their data today? Do developers share DEV lake paths/tables, or is there a per-developer target?","Output isolation for feature testing (§5.4)","Existing team")]:
+for q in [q for q in OPEN if q[0] not in ("OQ-07","OQ-08")] + [("OQ-07","GitHub plan","ANSWERED 24 Oct 2026: GitHub Enterprise","Vamshi"),("OQ-08","ServiceNow API access","ANSWERED 24 Oct 2026: no integration; CRs are manual (D-27)","Vamshi"),("OQ-10","How does UAT work today: who signs off, when is the CR raised, what happens on failure?","Confirms D-22","Existing team"),("OQ-09","Where do feature (debug) runs write their data today? Do developers share DEV lake paths/tables, or is there a per-developer target?","Output isolation for feature testing (§5.4)","Existing team")]:
     out.append("| " + " | ".join(q) + " |")
 
 def code(path, lang):
@@ -106,7 +112,7 @@ The tests use Azure DevOps-style squash messages (`Merged PR 101: …`). Add equ
 titles (`<title> (#101)`) and a mocked GitHub API provider.
 """ + code('tests/test_build_release.py', 'python'))
 out.append("""
-## Appendix C: `scripts/servicenow/cr_gate.py` (reference implementation)
+## Appendix C: `scripts/servicenow/cr_gate.py` (for later; NOT used now, see D-27)
 """ + code('scripts/servicenow/cr_gate.py', 'python'))
 out.append("""
 ## Appendix D: Azure SQL config project examples

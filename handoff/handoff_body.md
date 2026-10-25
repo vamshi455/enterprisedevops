@@ -1,6 +1,6 @@
 # Shell Data Platform CI/CD: Handoff for the Local Coding Agent
 
-Version 1.3 · 24 Oct 2026 · Owner: Vamshi Singam (lead)
+Version 1.4 · 24 Oct 2026 · Owner: Vamshi Singam (lead)
 
 This file is **self-contained**. It holds the full context, target architecture, specifications, conventions,
 access requirements and reference code. No other repository or document is needed.
@@ -54,7 +54,7 @@ PROD), Microsoft Entra ID (existing managed identities must be reused).
 - **A release is a list of PRs**: never individual commits, never all of `main`.
 - **Build once, deploy many**: QA, UAT and PROD receive the identical artifact.
 - **No Azure secrets in GitHub**: OIDC federated credentials on the existing managed identities.
-- Every PR is linked to an Azure Boards story; every PROD deployment is tied to an approved ServiceNow CR.
+- Every PR is linked to an Azure Boards story; every PROD deployment is tied to an approved ServiceNow CR (raised and checked by hand; no integration).
 
 ---
 
@@ -124,7 +124,7 @@ Combine the existing files with fresh read-only checks. Record the source for ev
 | Key Vault | vaults used by linked services, access model (RBAC vs policies) | `az keyvault list`, `az keyvault show` |
 | GitHub | org, plan (Enterprise?), existing repos for this team, Actions policy, existing workflows, rulesets/branch protection, environments, installed apps (Azure Boards, ADF, Databricks) | `gh api orgs/<org>`, `gh repo list <org>`, `gh api repos/<o>/<r>/rulesets`, `gh api repos/<o>/<r>/environments`, `gh workflow list -R <o>/<r>` |
 | Azure Boards | org, project, area path, work-item types and **state names** | `az boards work-item show`, `az devops project show` |
-| ServiceNow | instance URL, change model, assignment group, whether API access exists | ask Vamshi if not discoverable |
+| ServiceNow (manual) | change model, CR template, who approves, typical lead time, change windows; no API integration (D-27) | ask Vamshi / the team |
 | Environment-specific values | every value that differs per environment: source server names (QA reads the test source, UAT the UAT source, …), storage accounts and paths, Databricks workspace and catalog, Key Vault names, integration runtime names. Record where each lives today (ADF parameter files, global parameters, config DB rows, bundle files, pipeline variables) | ADF ARM parameter files and global parameters, `SELECT` on config tables, bundle `targets`, existing pipeline variables |
 | Feature-run outputs | where ADF/Databricks runs write data in DEV (lake paths, catalogs/schemas) and whether developers share the same targets | linked services, datasets, bundle variables; ask the team |
 
@@ -160,7 +160,7 @@ Stop. Report the answers, the top 5 risks, and anything you could not access.
 | 4.3 PR validation | `.github/workflows/pr-validation.yml` per §5.6; `docs/branch-protection.md` with the ruleset to request | Workflow green on a test PR; fails without AB# or Feature-Test-Run |
 | 4.4 Feature environment | `feature-env.yml`, `feature-cleanup.yml`; ADF `configDb` parameterisation (§5.4); `docs/feature-testing.md` | One branch gets its own DB; ADF debug against it succeeds; DB dropped after PR close |
 | 4.5 Deploy DEV | reusable `deploy-env.yml` + `deploy-dev.yml` (§5.6, §5.10) | Merge to main deploys DEV in the right order |
-| 4.6 Release | `release.yml` with the `pr_list` input and the release queue (§5.6–5.9, §5.7a); `drop-release.yml`; port Appendix C | Dry-run (`plan`) correct; a real release of one PR reaches QA |
+| 4.6 Release | `release.yml` (preview + confirm, queue, cut guards, CR text), `deploy-prod.yml` and `drop-release.yml` (§5.6–5.9, §5.7a–d). Do **not** port Appendix C (ServiceNow integration deferred) | Dry-run (`plan`) correct; a real release of one PR reaches QA |
 | 4.7 Pilot | One real story end-to-end; `pilot/PILOT_REPORT.md` | Story reaches QA (and UAT if approvers are available) through the new path |
 
 ---
@@ -176,7 +176,7 @@ flowchart LR
   MAIN -.->|"PR list 1234,1240"| G2{{"Gate 2 · cut<br/>cherry-pick by PR"}}
   G2 --> REL[("release/R2026.11.01<br/>manifest.json")] --> B["Build once"]
   B -->|"auto, no approval"| QA["QA"] --> G3{{"Gate 3 · QA sign-off"}} --> UAT["UAT"]
-  UAT --> G4{{"Gate 4 · ServiceNow CR"}} --> G5{{"Gate 5 · release mgr"}} --> PROD["PROD"]
+  UAT --> G4{{"Gate 4 · CR check (manual)"}} --> G5{{"Gate 5 · release mgr"}} --> PROD["PROD"]
   PROD --> TAG["tag prod/R2026.11.01"] -.->|next baseline| G2
 ```
 
@@ -192,7 +192,7 @@ flowchart LR
 | 4 | Factory MI (existing) → config DB / Databricks / ADLS / Key Vault | Managed identity at runtime | db_datareader/writer + EXECUTE; CAN MANAGE RUN on jobs; Storage Blob Data Contributor; Key Vault Secrets User |
 | 5 | Azure Boards ↔ GitHub | Azure Boards app; `AB#<id>` in PR links the story | App installed + project connected |
 | 6 | Release workflow → Azure Boards API | Managed identity added to the Azure DevOps org; token for resource `499b84ac-1321-427f-aa17-267ca6975798` | Basic access + Contributor on project/area |
-| 7 | Release workflow → ServiceNow | Integration user / OAuth client; secret in the `prod` GitHub environment | Read/update `change_request` |
+| 7 | ServiceNow | **No integration (D-27).** The release manager raises and checks the CR by hand; the workflow only produces the CR text and records the CR number | None now |
 | 8 | release-bot GitHub App → repo | App installation token (`actions/create-github-app-token`) | Contents RW; ruleset bypass for `release/*` and `prod/*` |
 
 ### 5.2 Repository layout
@@ -210,7 +210,7 @@ shell-data-platform/
 │   ├── Tables/ Procs/ Views/    schema (DACPAC)
 │   ├── Data/<area>/<KEY>.sql    one idempotent MERGE per config key
 │   └── Scripts/Script.PostDeployment.sql   :r includes for Data files
-├── scripts/release/             build_release.py (+ GitHub provider), cr_gate.py
+├── scripts/release/             build_release.py (+ GitHub provider); cr_gate.py only if ServiceNow integration is approved later
 ├── tests/
 ├── releases/                    manifests (only on release/* branches)
 ├── docs/
@@ -226,9 +226,9 @@ shell-data-platform/
 | — | Merge to main | Deploys DEV (integration check, not the first test) | `deploy-dev` |
 | 2 Release cut | Manual, **any developer** for their own PRs | **Release queue: refused if another release is in progress** (§5.7a); listed PRs merged, squash, linked, not in prod; ordered by merge; cherry-picked onto the latest `prod/*` tag; dependency/conflict check | `release` → `build_release.py` |
 | — | After cut | **Deploys to QA automatically, no approval** (decision D-17) | `release` → `deploy-env` |
-| 3 UAT | After QA | QA sign-off; `uat` environment approval (QA lead/team) | GitHub Environment |
-| 4 Change | Before PROD | CR approved, Scheduled/Implement, inside window, CR PR list == manifest | `cr_gate.py check` |
-| 5 PROD | After CR | Release manager approves `prod` environment | GitHub Environment |
+| 3 UAT | After QA | QA lead signs off by approving the `uat` deployment ("Review deployments" on the paused run); GitHub records who and when | GitHub Environment |
+| 4 Change (manual) | Before PROD | **No ServiceNow integration.** The CR is raised by hand. The release manager checks in ServiceNow that the CR is approved, inside its window, lists the same PRs as the manifest, and that UAT business sign-off is recorded; then enters the CR number when starting `deploy-prod` | Release manager + `deploy-prod` inputs |
+| 5 PROD | After CR check | Release manager approves the `prod` environment on the `deploy-prod` run | GitHub Environment |
 
 **Where the Gate 0 run ID comes from.** When the developer clicks **Debug** in ADF Studio (Git mode, on their branch), the run
 appears in the Output tab with its run ID. It is also under **Monitor → Pipeline runs → Debug**. The developer copies it into the PR
@@ -321,10 +321,12 @@ record the choice in `DECISIONS.md`. Examples are in Appendix D.
 | `deploy-dev` | push main (ignore docs/**) | `dev` | DEV deploy identity | calls `deploy-env` with `env: dev` |
 | `deploy-env` (reusable) | `workflow_call` (input `env`) | the env | that env's identity | §5.10 order |
 | `drop-release` | `workflow_dispatch`: `release_id`, `reason` | `release-cut` | release-bot | tag `dropped/<id>`, delete `release/<id>`, comment on stories, free the queue (§5.7a) |
-| `release` | `workflow_dispatch`: `pr_list` (required), `release_id` (default `R<yyyy.MM.dd>`), `change_request` (default `auto`), `strict_dependencies` (default true) | `release-cut`, `qa`, `uat`, `prod` | per env + release-bot | queue check (§5.7a), then jobs: `cut` → `build` → `deploy-qa` → `deploy-uat` → `change-gate` → `deploy-prod`; job summary shows the PR table at each stage; stories moved per stage |
+| `release` | `workflow_dispatch`: `pr_list` (required), `release_id` (default `R<yyyy.MM.dd>`), `strict_dependencies` (default true), `confirm` (default false = preview only, §5.7b) | `release-cut`, `qa`, `uat` | per env + release-bot | queue check (§5.7a) and cut guards (§5.7b), then jobs: `cut` → `build` → `deploy-qa` (automatic) → `deploy-uat` (QA lead approval). Job summary shows the PR table and a **ready-to-paste CR description** (§5.8). Stories moved per stage. The run ends after UAT |
+| `deploy-prod` | `workflow_dispatch`: `release_id` (required), `change_request` (required, format `CHG` + digits), `cr_checked` (boolean: "CR approved, in window, PR list matches, business sign-off recorded", must be true) | `prod` (release managers) | PROD identity + release-bot | verify the release is in UAT and its baseline is the latest `prod/*` tag → wait for `prod` approval → deploy-env → tag `prod/<id>` (CR number in the tag message and manifest) → stories Closed → summary with CR number for the release manager to close the CR by hand |
 
 GitHub Environments: `dev-feature` (branches `feature/**`, `bugfix/**`), `dev` (main), `release-cut` (main),
-`qa`, `uat`, `prod` (branches `release/*`). Required reviewers: **none on `qa`** (QA deploys automatically after the cut), `uat` = QA sign-off group, `prod` = release managers.
+`qa`, `uat`, `prod` (branches `release/*`). Required reviewers: **none on `qa`** (QA deploys automatically after the cut), `uat` = QA lead, `prod` = release managers.
+PROD is a separate workflow (`deploy-prod`) because CR approval and scheduling can take days, longer than a run should wait.
 
 ### 5.7 Release mechanism (cherry-pick by PR)
 
@@ -357,7 +359,7 @@ Manifest schema:
   "pr_ids": [1234, 1240], "work_items": [5678, 5690],
   "pull_requests": [{"id":1234,"title":"…","merge_commit":"<sha>","squash":true,"work_items":[5678],"files":["…"],"main_position":12,"cherry_sha":"<sha>"}],
   "dependency_warnings": [{"pr":1245,"depends_on_unselected_pr":1234,"title":"…","files":["…"]}],
-  "servicenow": {"change_request": null, "state": null}, "promotions": [] }
+  "change_request": null, "promotions": [] }
 ```
 
 ### 5.7a Release queue (decision D-21): one release in progress at a time
@@ -379,15 +381,60 @@ Implementation:
   The PRs that passed are then cut again in a new release without the failed PR.
 - Because only one release exists at a time, QA is never overwritten by a second release.
 
-### 5.8 ServiceNow gate
+### 5.7b Cut guards against human error (decision D-26)
 
-Implemented in Appendix C. The CR description carries `Release-Id: <id>` and `Release-PRs: 1234, 1240`
-(or the custom field `u_release_prs`). `--cr auto` finds the open CR by Release-Id.
-- `check`: approval = approved; state ∈ {Scheduled (-2), Implement (-1)}; now within start/end; CR PRs == manifest PRs.
-- `start`: state → Implement, work note with the run URL.
-- `close`: success → state Review (0), close code successful, evidence note; failure → work note only.
-Credentials: `SNOW_INSTANCE`, `SNOW_USER`, `SNOW_PASSWORD` (or `SNOW_TOKEN`) as `prod` environment secrets.
-Replace `##vso` lines with GitHub Actions equivalents (`::error::`, `$GITHUB_OUTPUT`).
+People mistype PR numbers and pick the wrong PRs. The cut catches this instead of relying on a release manager's memory:
+1. **Preview first (blocking).** `release` with `confirm=false` (the default) only runs `plan`: it shows each listed PR's number,
+   title, story, author, merge date, files and any dependency warnings, and cuts nothing. The developer reads it and re-runs with
+   `confirm=true`. This catches a typo like 1240 instead of 1204.
+2. **Failed PRs are blocked (blocking).** When a release is dropped because a PR failed QA or UAT, that PR gets the GitHub label
+   `failed-qa` or `failed-uat`. The cut refuses a labelled PR unless its fix PR (one whose body says `Depends-On: #<that PR>`) is in the same
+   list. The label is removed when the fix ships to PROD or the PR is reverted.
+3. **Ownership check (warning only).** If the person cutting is not the author of a listed PR, or its story is not in the current
+   sprint, the preview shows a warning that must be acknowledged. Developers can still release a teammate's PR when it makes sense.
+
+### 5.7c Failures, rework and reverts (decisions D-23 to D-25)
+
+**A story fails QA or UAT.** Drop the release (`drop-release`, which labels the failed PRs). Cut the remaining PRs again from the
+latest `prod/*` tag. The cut proves the remaining PRs do not depend on the failed ones; if one does, it stops and names the failed
+PR. The new build goes to QA automatically and QA re-checks it before approving UAT, because it is a different build.
+
+**Rework.** The failed PR is already merged into `main`, so it is never reopened or edited. The developer opens a **new fix PR**
+from `main`, linked to the same story, with `Depends-On: #<old PR>`. It goes through Gate 0 and Gate 1 again. The next release lists
+**both** PRs; listing only the fix fails the cut (dependency check). The story stays open in Azure Boards until both ship.
+
+**Fix forward by default; revert only when:**
+1. the story is abandoned for good,
+2. the PR breaks DEV for other developers, or
+3. it blocks another developer's cut (their PR needs the same files).
+A PR left on `main` is harmless to QA/UAT/PROD because releases only take listed PRs (and the failed label blocks it).
+Suggested target, to confirm with the team: a failed PR gets a fix or a revert within about a week.
+
+**How a revert works.** Use GitHub's **Revert** button on the merged PR. It opens a new PR containing the exact opposite change
+(one squash commit, so it reverts cleanly). It goes through Gate 1 and is squash-merged; DEV then returns to its previous state.
+History keeps both the change and its undo. If later PRs touched the same files, the revert must be resolved by hand.
+**Config DB rows do not undo themselves:** removing a MERGE file only stops future deploys. If rows were already applied, the revert
+PR must include a script that deletes them. That is what the PR's `Rollback:` line is for.
+
+### 5.7d UAT working assumptions (decision D-22; confirm with the team in Phase 2)
+
+The current UAT practice is not yet known, so build on these defaults and record what the team actually does in `CURRENT_PROCESS.md`:
+1. The **QA lead** approves the move to UAT (Gate 3).
+2. **Business users** test in UAT and a **named business owner** signs off (recorded in the stories or the CR).
+3. The **CR is raised by hand during UAT**; PROD cannot start until business sign-off is recorded.
+4. A story that **fails UAT** is handled like a QA failure: drop, re-cut without it, back through QA.
+
+### 5.8 Change request (manual; decision D-27)
+
+There is **no ServiceNow integration**. Integrating ServiceNow with the CI/CD platform takes too long at Shell, so CRs are raised and
+approved by hand, and the check before PROD is done by a person:
+- The `release` run summary produces a **ready-to-paste CR description** from the manifest: release id, PR list, stories,
+  each PR's `Release-Note`, `Rollback` notes, components (ADF / Databricks / SQL config) and the QA/UAT run links.
+- The release manager raises the CR in ServiceNow with that text and gets it approved.
+- Before PROD, the release manager confirms in ServiceNow that the CR is **approved, inside its change window, lists exactly the
+  release's PRs, and has UAT business sign-off**, then starts `deploy-prod` with the CR number and `cr_checked=true`.
+- After PROD, the workflow summary shows the result and evidence; the release manager closes the CR by hand.
+- Appendix C (`cr_gate.py`) is kept **for later**, if ServiceNow integration is approved. Do not build it now.
 
 ### 5.9 Azure Boards
 

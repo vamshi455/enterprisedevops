@@ -14,7 +14,7 @@ Decision log for the Shell data platform CI/CD process. The full context is in [
 | D-06 | GitHub + GitHub Actions; approvals via GitHub Environments (qa, uat, prod) | Team already uses GitHub |
 | D-07 | Release workflow takes a comma-separated `pr_list` input | Same model as the previous Azure DevOps process |
 | D-08 | Azure Boards stories linked by `AB#<id>`; the release moves story states | Stories live in Azure Boards |
-| D-09 | ServiceNow CR gate before PROD: approved, in window, CR PR list = manifest | Ties the CR to the exact PRs |
+| D-09 | CR gate before PROD: approved, in window, CR PR list = manifest (checked by hand, see D-27) | Ties the CR to the exact PRs |
 | D-10 | Reuse existing managed identities via OIDC federated credentials; no Azure secrets in GitHub | Admin requirement; identities must be user-assigned |
 | D-11 | Per-branch config DB copy `sqldb-etlcfg-ft-<id>` (copy of DEV + branch scripts), dropped on PR close | Config testable on the branch (§5.4) |
 | D-12 | Config data as one idempotent MERGE per key; runtime tables never deployed | Clean cherry-picks; protects environment state |
@@ -27,8 +27,24 @@ Decision log for the Shell data platform CI/CD process. The full context is in [
 | D-19 | GitHub org is on **GitHub Enterprise** (OQ-07 answered) | Environment approvals available for UAT and PROD |
 | D-20 | **Developers can cut a release** for their own PRs; not restricted to release managers | Empower developers; the queue prevents collisions |
 | D-21 | **Release queue**: one release in progress at a time (cut → PROD tag or dropped); a new cut is refused, not queued; every cut starts from the latest `prod/*` tag (§5.7a) | One QA environment; prevents QA overwrites and PROD going backwards |
+| D-22 | UAT defaults (to confirm): QA lead approves UAT; business owner signs off; CR raised during UAT; PROD only after business sign-off; UAT failure = drop and re-cut (§5.7d) | Current UAT practice unknown; standard defaults |
+| D-23 | Partial failure: drop the release, re-cut the passing PRs from the latest `prod/*` tag; the cut proves independence; the new build goes through QA again (§5.7c) | Good PRs keep moving without risk |
+| D-24 | Rework = new fix PR (same story, `Depends-On: #<old>`); old merged PR is never edited; next release lists both (§5.7c) | Squash-merged PRs are immutable; dependency check enforces it |
+| D-25 | Fix forward by default; revert only if the story is abandoned, it breaks DEV, or it blocks another cut; reverts via GitHub Revert + explicit config-row delete script (§5.7c) | Releases only take listed PRs, so bad PRs on main are contained |
+| D-26 | Cut guards: preview before cut (blocking), `failed-qa`/`failed-uat` label blocks a PR unless its fix is listed (blocking), ownership/sprint check (warning) (§5.7b) | Human error in picking PRs |
+| D-27 | **No ServiceNow integration.** CRs raised and approved by hand; release manager checks the CR before PROD and enters its number in `deploy-prod`; workflow generates the CR text (§5.8) | ServiceNow integration takes too long at Shell |
 
 ## Notes on recent decisions
+
+- **D-27 No ServiceNow integration (24 Oct 2026).** Integrating ServiceNow with CI/CD takes too long at Shell. CRs are raised and
+  approved by hand. Before PROD the release manager checks the CR (approved, in window, same PRs, business sign-off) and starts
+  `deploy-prod` with the CR number. The `release` run generates a ready-to-paste CR description. PROD is a separate workflow because
+  CR scheduling can take days.
+- **D-26 Cut guards (24 Oct 2026).** From real experience of mistyped PR numbers: preview before cut (blocking), failed-QA/UAT label
+  blocks a PR unless its fix is listed (blocking), ownership/sprint check (warning only).
+- **D-22 to D-25 (24 Oct 2026).** UAT defaults to confirm with the team; partial failure = drop and re-cut the passing PRs, back
+  through QA; rework always via a new fix PR that depends on the old one; fix forward by default, revert only when the story is
+  abandoned, DEV is broken, or another cut is blocked (config rows need an explicit delete script).
 
 - **D-20 / D-21 Developer cuts + release queue (24 Oct 2026).** Any developer can cut a release for their own PRs. Only one
   release can be in progress (from cut until tagged in PROD or dropped). A new cut while one is in progress is **refused** with a
