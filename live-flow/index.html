@@ -43,19 +43,24 @@
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;
-  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:18px 90px}
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px 90px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
 h1,h2,h3{font-family:var(--f-display);margin:0;line-height:1.15;text-wrap:balance}
 h1{font-size:24px} h2{font-size:18px} h3{font-size:15px}
 button,select{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.wrap{max-width:1560px;margin:0 auto;display:grid;gap:14px}
+.wrap{max-width:1560px;margin:0 auto;display:grid;gap:10px}
 .wrap>*{min-width:0}
 .eb{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
 .lede{color:var(--muted);margin:4px 0 0;max-width:80ch}
 .mono{font-family:var(--f-mono);font-size:.86em}
 
 /* controls */
-.controls{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:end;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;position:sticky;top:env(safe-area-inset-top,0px);z-index:20}
+.controls h1{font-size:17px;margin-right:6px;white-space:nowrap}
+.controls select{min-width:0;padding:5px 8px;font-size:14px}
+.btn.sm{padding:5px 10px;font-size:14px}
+.tog{display:flex;gap:5px;align-items:center;font-size:14px;font-weight:600;padding:0 4px}
 .ctl{display:grid;gap:4px}
 .ctl label{font-size:11.5px;font-weight:700;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
 select{border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:7px 10px;min-width:150px}
@@ -137,30 +142,37 @@ abbr.g{text-decoration:underline dotted;text-underline-offset:3px;cursor:help}
 .def{border-bottom:1px solid var(--line);padding-bottom:8px}
 .def b{font-family:var(--f-display);font-size:14px}
 .def p{margin:2px 0 0;font-size:13.5px;color:var(--muted)}
+.rbadge{cursor:pointer}
+.rbadge circle{fill:var(--bad);stroke:var(--surface);stroke-width:2}
+.rbadge text{font-family:var(--f-mono);font-size:10px;font-weight:700;fill:#fff;text-anchor:middle}
+.risks-off .rbadge{display:none}
+.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+.risk{border:1px solid var(--line);border-left:4px solid var(--bad);border-radius:8px;padding:10px 12px;display:grid;gap:6px;background:var(--lane);font-size:13.5px}
+.risk h3{font-size:14.5px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.risk .rid{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.risk dl{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin:0}
+.risk dt{font-weight:700;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em;padding-top:1px}
+.risk dd{margin:0} .risk ul{margin:0;padding-left:16px}
+.pill.open{background:var(--bad-bg);color:var(--bad)} .pill.prop{background:var(--warn-bg);color:var(--warn)} .pill.dec{background:var(--ok-bg);color:var(--ok)}
+.twocol{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+@media (max-width:900px){.twocol{grid-template-columns:1fr}}
+table.w{width:100%;border-collapse:collapse;font-size:13.5px} table.w th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:5px;border-bottom:1px solid var(--line)} table.w td{padding:6px 5px;border-bottom:1px solid var(--line);vertical-align:top}
+.rfilter{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 
 <div class="wrap">
-  <header>
-    <div class="eb">Shell data platform · ADF · Databricks · Azure SQL config DB</div>
-    <h1>Release Live Flow</h1>
-    <p class="lede">Every gate from feature branch to PROD, with a moving token for the current flow. Pick a gate to explain it, pick a deployment type to see what changes for ADF, Databricks or the Azure SQL config DB, hover for a summary, and click a box for the details (drag the popup by its header).</p>
-  </header>
-
   <div class="controls" role="group" aria-label="View options">
-    <div class="ctl"><label for="gateSel">Gate</label><select id="gateSel"></select></div>
-    <div class="ctl"><label for="typeSel">Deployment type</label>
-      <select id="typeSel"><option value="all">All three (full release)</option><option value="adf">ADF only</option><option value="dbx">Databricks only</option><option value="sql">Azure SQL DB only</option></select></div>
-    <div class="ctl"><label for="styleSel">Style</label>
-      <select id="styleSel"><option value="classic">Classic</option><option value="blueprint">Blueprint</option><option value="contrast">High contrast</option></select></div>
-    <div class="ctl"><label for="speedSel">Speed</label>
-      <select id="speedSel"><option value="0.6">Slow</option><option value="1" selected>Normal</option><option value="1.8">Fast</option></select></div>
-    <button class="btn ghost" id="prevBtn" title="Previous gate">◀ Prev gate</button>
-    <button class="btn ghost" id="nextBtn" title="Next gate">Next gate ▶</button>
-    <button class="btn" id="playBtn">Pause</button>
-    <button class="btn ghost" id="tourBtn" title="Walk through every gate automatically">Gate tour</button>
-    <div class="spacer"></div>
-    <div class="legend"><span><i style="background:var(--dev)"></i>Developer</span><span><i style="background:var(--auto)"></i>GitHub Actions</span><span><i style="background:var(--ppl)"></i>People / approvals</span><span><i style="background:var(--env)"></i>Azure environment</span></div>
+    <h1>Release Live Flow</h1>
+    <select id="gateSel" aria-label="Gate"></select>
+    <select id="typeSel" aria-label="Deployment type"><option value="all">All three</option><option value="adf">ADF only</option><option value="dbx">Databricks only</option><option value="sql">Azure SQL DB only</option></select>
+    <select id="styleSel" aria-label="Style"><option value="classic">Classic</option><option value="blueprint">Blueprint</option><option value="contrast">High contrast</option></select>
+    <select id="speedSel" aria-label="Speed"><option value="0.6">Slow</option><option value="1" selected>Normal</option><option value="1.8">Fast</option></select>
+    <label class="tog"><input type="checkbox" id="riskTog" checked> Risks</label>
+    <button class="btn ghost sm" id="prevBtn" title="Previous gate" aria-label="Previous gate">◀</button>
+    <button class="btn ghost sm" id="nextBtn" title="Next gate" aria-label="Next gate">▶</button>
+    <button class="btn sm" id="playBtn">Pause</button>
+    <button class="btn ghost sm" id="tourBtn">Tour</button>
   </div>
 
   <div class="canvas"><svg id="flow" role="img" aria-label="Release flow swimlane diagram"></svg></div>
@@ -169,6 +181,7 @@ abbr.g{text-decoration:underline dotted;text-underline-offset:3px;cursor:help}
     <section class="panel" aria-live="polite" id="explain"></section>
     <section class="panel" id="inside"></section>
   </div>
+  <section class="panel" id="risks"></section>
 </div>
 
 <div class="tip" id="tip" hidden></div>
@@ -360,7 +373,7 @@ const PATH = ["build","fenv","fspace","pr","checks","lead","merge","devenv","cut
 const EDGE_LABEL = {"build>fenv":"push","fenv>fspace":"ready","fspace>pr":"run ID","pr>checks":"validate","checks>lead":"green","lead>merge":"approved","merge>devenv":"deploy","devenv>cutreq":"list PRs","cutreq>cut":"confirm","cut>qadeploy":"auto","qadeploy>qaenv":"deploy","qaenv>qatest":"test","qatest>uatok":"passed","uatok>uatdeploy":"approved","uatdeploy>uatenv":"deploy","uatenv>cr":"signed off","cr>prodok":"checked","prodok>proddeploy":"approved","proddeploy>prodenv":"deploy"};
 
 const GATES = [
- {id:"all", label:"All gates (overview)", stages:STAGES.map(s=>s.id), who:"Everyone",
+ {id:"all", label:"All gates", stages:STAGES.map(s=>s.id), who:"Everyone",
   sum:"From a developer's branch to PROD: test on the branch, review the PR, merge to DEV, cut a release from chosen PRs, QA automatically, UAT on the QA lead's approval, a manual CR check, and the release manager's PROD approval.",
   checks:["Gate 0 Feature test: own test space, successful debug run","Gate 1 PR: ten checks + tech lead","Merge → DEV automatic","Gate 2 Cut: queue, guards, validations, build once","QA automatic, no approval","Gate 3 UAT: QA lead approval, business sign-off","Gate 4 CR: checked by hand","Gate 5 PROD: release manager approval, tag"]},
  {id:"g0", label:"Gate 0 · Feature test", stages:["g0"], who:"Developer",
@@ -457,7 +470,8 @@ function draw(){
       <text class="t" x="${x+13}" y="${y+24}">${esc(n.title)}</text>
       <text class="s" x="${x+13}" y="${y+42}" data-sub="1"></text>
       <text class="s" x="${x+13}" y="${y+58}" data-who="1">${esc(n.who.replace(/ \(.*\)$/,"").length>23?n.who.replace(/ \(.*\)$/,"").slice(0,22)+"…":n.who.replace(/ \(.*\)$/,""))}</text>
-      <circle class="pulse" cx="${x+NW/2}" cy="${y+NH/2}" r="${NW/2}"/></g>`;
+      <circle class="pulse" cx="${x+NW/2}" cy="${y+NH/2}" r="${NW/2}"/>
+      <g class="rbadge" data-node="${n.id}" aria-hidden="true"><circle cx="${x+NW-2}" cy="${y+2}" r="9"/><text x="${x+NW-2}" y="${y+5.5}" data-cnt="1"></text></g></g>`;
   });
   h+=`<circle class="token" id="token" r="6" cx="-20" cy="-20"/>`;
   svg.innerHTML=h;
@@ -487,7 +501,7 @@ function apply(){
     const e=document.getElementById("e_"+i); e.classList.toggle("dim",!on);
     const lb=document.querySelector(`.elabel[data-e="${i}"]`); if(lb) lb.style.opacity = on?1:.2;
   }
-  renderExplain(gate); renderInside();
+  renderExplain(gate); renderInside(); renderRisks(gate); updateBadges();
   // restrict token loop to the gate's edges
   st.loop = edgesFor(gate); if(!st.loop.includes(st.idx)){ st.idx=st.loop[0]; st.t=0; }
 }
@@ -499,7 +513,7 @@ function edgesFor(gate){
 }
 const TYPE_NAME={all:"all three",adf:"ADF only",dbx:"Databricks only",sql:"Azure SQL DB only"};
 function renderExplain(g){
-  const extra = st.type==="all" ? "" : `<p style="margin:0" class="lede">Showing <b>${TYPE_NAME[st.type]}</b>: box subtitles and popups show what this gate means for that deployment type.</p>`;
+  const extra="";
   $("#explain").innerHTML=`<div class="eb">${g.id==="all"?"Overview":"Explaining"}</div><h2>${esc(g.label)}</h2>
    <div class="who"><span class="pill ok">${esc(g.who)}</span></div>
    <p style="margin:0">${gloss(esc(g.sum))}</p>${extra}
@@ -527,6 +541,41 @@ function gloss(html){
   return out;
 }
 
+/* ============ risks ============ */
+const riskApplies = r => st.type==="all" || r.types.includes(st.type) || r.types.includes("all") && st.type==="all";
+const riskForType = r => st.type==="all" ? true : r.types.includes(st.type);
+const SP_CLS={Decided:"dec",Proposed:"prop",Open:"open"};
+function riskCard(r){
+  return `<article class="risk"><h3><span class="rid">${r.id}</span>${esc(r.title)} <span class="pill ${SP_CLS[r.status]}">${r.status}</span></h3>
+   <p style="margin:0">${gloss(esc(r.what))}</p>
+   <dl><dt>Who waits</dt><dd>${esc(r.wait)}</dd><dt>Signal</dt><dd>${esc(r.signal)}</dd>
+   <dt>Prevent</dt><dd><ul>${r.prevent.map(x=>`<li>${gloss(esc(x))}</li>`).join("")}</ul></dd>
+   <dt>Fix fast</dt><dd><ul>${r.fix.map(x=>`<li>${gloss(esc(x))}</li>`).join("")}</ul></dd></dl></article>`;
+}
+function riskHtmlForNode(id){
+  if(!$("#riskTog").checked) return "";
+  const rs=RISKS.filter(r=>r.node===id && riskForType(r));
+  if(!rs.length) return "";
+  return `<div><b>What can go wrong here (${rs.length})</b>${rs.map(r=>`<div style="margin-top:8px">${riskCard(r)}</div>`).join("")}</div>`;
+}
+function updateBadges(){
+  const on=$("#riskTog").checked; svg.classList.toggle("risks-off",!on);
+  N.forEach(n=>{ const c=RISKS.filter(r=>r.node===n.id && riskForType(r)).length; const g=document.querySelector(`.rbadge[data-node="${n.id}"]`); if(!g) return; g.style.display = c&&on? "":"none"; g.querySelector("[data-cnt]").textContent=c; });
+}
+function renderRisks(gate){
+  const box=$("#risks"); if(!$("#riskTog").checked){ box.hidden=true; return; } box.hidden=false;
+  const stages=new Set(gate.stages);
+  const rs=RISKS.filter(r=>riskForType(r) && (gate.id==="all" || stages.has(STAGES[byId[r.node].s].id)));
+  const counts={Open:0,Proposed:0,Decided:0}; rs.forEach(r=>counts[r.status]++);
+  const head=`<div class="rfilter"><h2 style="margin-right:auto">What can go wrong${gate.id==="all"?"":" · "+esc(gate.label)} · ${TYPE_NAME[st.type]}</h2>
+    <span class="pill open">${counts.Open} open</span><span class="pill prop">${counts.Proposed} proposed</span><span class="pill dec">${counts.Decided} decided</span></div>`;
+  const extra = gate.id==="all" ? `<div class="twocol">
+     <div><h3 style="margin-bottom:6px">Who waits on whom</h3><table class="w"><thead><tr><th>Wait</th><th>Cause</th><th>Avoid it</th></tr></thead><tbody>${WAITS.map(w=>`<tr><td><b>${esc(w[0])}</b></td><td>${esc(w[1])}</td><td>${gloss(esc(w[2]))}</td></tr>`).join("")}</tbody></table></div>
+     <div><h3 style="margin-bottom:6px">When something unforeseen happens</h3><ol>${PLAYBOOK.map(p=>`<li><b>${esc(p[0])}.</b> ${gloss(esc(p[1]))}</li>`).join("")}</ol></div></div>` : "";
+  box.innerHTML = head + extra + (rs.length? `<div class="rgrid">${rs.map(riskCard).join("")}</div>` : `<p class="lede">No risks recorded for this gate and type.</p>`);
+}
+svg.addEventListener("click", e=>{ const b=e.target.closest(".rbadge"); if(b){ e.stopPropagation(); const n=byId[b.dataset.node]; openPop(n, document.getElementById("n_"+n.id)); setTimeout(()=>{ const t=[...document.querySelectorAll("#popBody b")].find(x=>x.textContent.startsWith("What can go wrong")); if(t) t.scrollIntoView({block:"start"}); },30); } }, true);
+
 /* ============ animation ============ */
 let last=0;
 function frame(ts){
@@ -550,7 +599,8 @@ const tip=$("#tip"), pop=$("#pop");
 svg.addEventListener("pointermove", e=>{
   const g=e.target.closest(".node"); if(!g){ tip.hidden=true; return; }
   const n=byId[g.dataset.id];
-  tip.innerHTML=`<b>${esc(n.title)}</b>${esc(n.tip)}<br><span style="opacity:.75">${esc(n.who)} · click for details</span>`;
+  const rc=$("#riskTog").checked? RISKS.filter(r=>r.node===n.id && riskForType(r)).length : 0;
+  tip.innerHTML=`<b>${esc(n.title)}</b>${esc(n.tip)}<br><span style="opacity:.75">${esc(n.who)}${rc?` · ⚠ ${rc} risk${rc>1?"s":""}`:""}</span>`;
   tip.hidden=false;
   const x=Math.min(e.clientX+14, innerWidth-tip.offsetWidth-10), y=Math.min(e.clientY+16, innerHeight-tip.offsetHeight-10);
   tip.style.left=x+"px"; tip.style.top=y+"px";
@@ -565,6 +615,7 @@ function openPop(n, g){
   $("#popBody").innerHTML=`<dl class="kv"><dt>Stage</dt><dd>${stage.head} · ${esc(stage.title)}</dd><dt>Who</dt><dd>${esc(n.who)}</dd><dt>Type</dt><dd>${TYPE_NAME[st.type]}</dd></dl>
     <div><b>What happens</b><ul>${n.d.all.map(x=>`<li>${gloss(esc(x))}</li>`).join("")}</ul></div>
     ${typed?`<div><b>For ${TYPE_NAME[st.type]}</b><ul>${n.d[st.type].map(x=>`<li>${gloss(esc(x))}</li>`).join("")}</ul></div>`:""}
+    ${riskHtmlForNode(n.id)}
     ${st.type==="all"?Object.entries({adf:"ADF",dbx:"Databricks",sql:"Azure SQL DB"}).filter(([k])=>n.d[k]).map(([k,l])=>`<div><b>${l}</b><ul>${n.d[k].map(x=>`<li>${gloss(esc(x))}</li>`).join("")}</ul></div>`).join(""):""}`;
   pop.hidden=false;
   if(!pop.dataset.moved){
@@ -603,6 +654,7 @@ $("#gateSel").addEventListener("change", e=>{ stopTour(); st.gate=e.target.value
 $("#typeSel").addEventListener("change", e=>{ st.type=e.target.value; apply(); if(!pop.hidden){ const n=byId[$("#popTitle").dataset.id||""]; } });
 $("#styleSel").addEventListener("change", e=>{ const v=e.target.value; if(v==="classic") document.documentElement.removeAttribute("data-style"); else document.documentElement.setAttribute("data-style",v); try{ localStorage.setItem("lf-style",v); }catch(err){} });
 $("#speedSel").addEventListener("change", e=>{ st.speed=+e.target.value; renderInside(); });
+$("#riskTog").addEventListener("change", ()=>apply());
 $("#playBtn").addEventListener("click", ()=>{ st.playing=!st.playing; $("#playBtn").textContent=st.playing?"Pause":"Play"; renderInside(); });
 function stepGate(d){ const i=GATES.findIndex(g=>g.id===st.gate); const j=Math.max(0,Math.min(GATES.length-1,i+d)); st.gate=GATES[j].id; $("#gateSel").value=st.gate; apply(); }
 $("#prevBtn").addEventListener("click", ()=>{ stopTour(); stepGate(-1); });
@@ -615,6 +667,182 @@ $("#tourBtn").addEventListener("click", ()=>{
   st.tour=setInterval(()=>{ const i=GATES.findIndex(g=>g.id===st.gate); if(i>=GATES.length-1){ stopTour(); st.gate="all"; $("#gateSel").value="all"; apply(); return; } stepGate(1); }, 7000/st.speed);
 });
 try{ const sv=localStorage.getItem("lf-style"); if(sv && sv!=="classic"){ document.documentElement.setAttribute("data-style",sv); $("#styleSel").value=sv; } }catch(e){}
+
+/* ============ risk register (negative analysis) ============ */
+/* node: where it shows; types: which deployment types it applies to; wait: who ends up waiting on whom;
+   signal: how you notice; prevent; fix: how to recover fast; status: Decided | Proposed | Open */
+const RISKS = [
+ {id:"R01", node:"fenv", types:["sql"], title:"Feature DB copy fails",
+  what:"The copy can't be created: elastic pool full, quota reached, or the SQL server is unreachable.",
+  wait:"Developer is stuck at Gate 0 and can't test.", signal:"feature-env run fails at 'az sql db copy'.",
+  prevent:["Nightly cleanup of stale copies","Alert when the pool passes 80%","Cap copies per developer"],
+  fix:["Drop stale ft-* copies, re-run feature-env","If the server is down, test ADF-only parts and retry"], status:"Proposed"},
+ {id:"R02", node:"fspace", types:["sql","adf"], title:"Stale feature copy gives a false pass",
+  what:"The copy is a snapshot. On a long-lived branch it misses config merged since, so tests pass on old data and fail after merge.",
+  wait:"Nobody at first; later the whole team, if DEV breaks.", signal:"deploy-dev or DEV runs fail after a 'tested' PR merges.",
+  prevent:["Re-run feature-env before opening the PR","PR check warns if the copy is older than 5 days"],
+  fix:["Refresh the copy, re-test, push a fix PR"], status:"Proposed"},
+ {id:"R03", node:"fspace", types:["sql","adf"], title:"Test loads zero rows (watermark copied)",
+  what:"The copy carries DEV's current watermarks, so an incremental pipeline finds nothing new and 'succeeds' without testing anything.",
+  wait:"QA later, when the real load fails.", signal:"Debug run succeeds with 0 rows copied.",
+  prevent:["Feature-testing guide: reset the watermark in the copy","PR template asks for rows loaded"],
+  fix:["Reset the watermark in the copy, re-run debug"], status:"Decided"},
+ {id:"R04", node:"fspace", types:["all","adf","dbx","sql"], title:"Feature runs collide in shared DEV storage",
+  what:"If debug runs write to the same DEV lake paths or tables, developers overwrite each other's results and DEV's.",
+  wait:"Developers wait on each other; DEV data becomes unreliable.", signal:"Unexpected data in DEV tables; tests pass or fail at random.",
+  prevent:["Per-branch output folder (…/_feature/<story>/) and dev_<user> schema as pipeline parameters"],
+  fix:["Re-run DEV loads from source after cleanup"], status:"Open"},
+ {id:"R05", node:"build", types:["all","adf"], title:"Two developers edit the same pipeline",
+  what:"Two branches change the same ADF pipeline JSON. The second PR conflicts, and later the second can't be released without the first.",
+  wait:"Developer B waits for A's PR to merge and then to be released.", signal:"PR shows conflicts; cut names A's PR as missing.",
+  prevent:["One story per pipeline at a time (check the board)","CODEOWNERS per pipeline folder","Split large pipelines; small PRs"],
+  fix:["B rebases after A merges; release A and B together"], status:"Decided"},
+ {id:"R06", node:"fspace", types:["dbx"], title:"Leftover dev-mode Databricks jobs",
+  what:"Developers forget to remove their [dev user] jobs and schemas; cost and clutter grow, old jobs keep running on schedules.",
+  wait:"Nobody, but cost and noise grow.", signal:"Many [dev …] jobs in the DEV workspace.",
+  prevent:["Pause schedules in development mode","feature-cleanup runs bundle destroy on PR close"],
+  fix:["databricks bundle destroy -t dev for stale branches"], status:"Proposed"},
+ {id:"R07", node:"devenv", types:["all","adf","dbx","sql"], title:"DEV broken by a merge",
+  what:"A merged PR breaks DEV. Every new feature copy is taken from DEV, so everyone's Gate 0 testing inherits the break.",
+  wait:"The whole team.", signal:"deploy-dev red, or DEV runs failing after a merge.",
+  prevent:["Gate 1 checks and real feature testing","DEV failures are the team's top priority"],
+  fix:["Fix forward within hours, otherwise revert the PR (revert rule: breaks DEV)"], status:"Decided"},
+ {id:"R08", node:"lead", types:["all","adf","dbx","sql"], title:"Tech lead review bottleneck",
+  what:"One reviewer, many PRs, or the reviewer is away. PRs pile up and age, and conflicts grow.",
+  wait:"Developers wait on the tech lead.", signal:"PRs open longer than a day.",
+  prevent:["Two or more CODEOWNERS per area (backup)","Review within one working day","Small PRs"],
+  fix:["Backup reviewer approves; pair review for urgent PRs"], status:"Open"},
+ {id:"R09", node:"checks", types:["adf"], title:"Run ID expired or not found",
+  what:"ADF keeps debug run history for a limited time; an old run ID can't be verified.",
+  wait:"Developer re-runs the test.", signal:"Check 3 fails: run not found.",
+  prevent:["Open the PR soon after testing"], fix:["Re-run ADF debug, update Feature-Test-Run"], status:"Decided"},
+ {id:"R10", node:"pr", types:["all","adf","dbx","sql"], title:"Up-to-date churn",
+  what:"'Up to date with main' means every merge forces other open PRs to update and re-run checks. With many PRs this becomes a loop.",
+  wait:"Developers wait on each other's merges.", signal:"PRs repeatedly 'out of date'.",
+  prevent:["GitHub merge queue (available on Enterprise)","Small PRs, merge in order"], fix:["Use the merge queue"], status:"Proposed"},
+ {id:"R11", node:"checks", types:["all","adf","dbx","sql"], title:"Wrong environment value slips through",
+  what:"A hardcoded server name or path the scan doesn't recognise reaches QA or PROD and points at the wrong system.",
+  wait:"Testers, or PROD users.", signal:"QA reads from the DEV source; odd data in QA/PROD.",
+  prevent:["All environment values in settings/<env>.json","Settings keys must match across environments","Scan patterns for server/storage names"],
+  fix:["Hotfix PR moving the value into settings; redeploy"], status:"Decided"},
+ {id:"R12", node:"checks", types:["sql"], title:"Data-deleting schema change",
+  what:"Dropping or narrowing a column or table. BlockOnPossibleDataLoss stops the deploy in DEV, QA or PROD.",
+  wait:"Release stops at the first environment that has data.", signal:"sqlpackage error: possible data loss.",
+  prevent:["Explicit migration script reviewed in the PR","Separate approval for destructive changes"],
+  fix:["Add a migration/backout script; re-run the deploy"], status:"Proposed"},
+ {id:"R13", node:"merge", types:["all","adf","dbx","sql"], title:"deploy-dev fails after merge",
+  what:"main and DEV are out of sync: an ARM error, bundle error or blocked DACPAC.",
+  wait:"Everyone whose testing depends on DEV.", signal:"deploy-dev red.",
+  prevent:["Same build steps run in the PR checks"], fix:["Fix forward immediately; revert if not fixed same day"], status:"Decided"},
+ {id:"R14", node:"devenv", types:["all","adf","dbx","sql"], title:"main drifts far ahead of PROD",
+  what:"Many merged but unreleased PRs. DEV no longer resembles PROD, and releases get harder to cut cleanly.",
+  wait:"Release cuts start failing on dependencies.", signal:"Long list of unreleased PRs; frequent cut conflicts.",
+  prevent:["Release small and often","Weekly report: PRs merged more than 10 days ago, not released"],
+  fix:["Release dependent PRs together; revert abandoned ones"], status:"Proposed"},
+ {id:"R15", node:"cut", types:["all","adf","dbx","sql"], title:"Queue held: nobody else can cut",
+  what:"One release is in progress, so every other developer's cut is refused until it ships or is dropped.",
+  wait:"All developers wait on the release in QA/UAT.", signal:"Cut refused, naming the release in progress.",
+  prevent:["Release small and often","Time limit in QA/UAT, then ship or drop","Announce cuts in the team channel; combine PRs"],
+  fix:["Release manager drops a stalled release; re-cut"], status:"Open"},
+ {id:"R16", node:"cut", types:["all","adf","dbx","sql"], title:"Dependency chain blocks good PRs",
+  what:"A ready PR touches the same files as an earlier, unreleased PR that isn't ready. The cut stops.",
+  wait:"Developer waits on another developer's PR.", signal:"Cut names the missing PR.",
+  prevent:["One story per pipeline / config key","One MERGE file per key","Release dependent PRs together"],
+  fix:["Add the PR, wait for it, or revert it if abandoned"], status:"Decided"},
+ {id:"R17", node:"cut", types:["adf"], title:"Cut passes but build fails",
+  what:"A pipeline references a dataset or linked service added by an unlisted PR; no shared files, so the cut doesn't see it.",
+  wait:"Release cutter.", signal:"ARM export or ADF validate fails on the release branch.",
+  prevent:["Run ADF validate on the release branch before deploying QA"], fix:["Add the missing PR; re-cut"], status:"Proposed"},
+ {id:"R18", node:"cutreq", types:["all","adf","dbx","sql"], title:"Wrong PRs listed",
+  what:"Mistyped number or a teammate's PR included by accident.",
+  wait:"Nobody if caught.", signal:"Preview shows an unexpected title or author.",
+  prevent:["Preview before cut","Ownership warning"], fix:["Correct the list; re-preview"], status:"Decided"},
+ {id:"R19", node:"qadeploy", types:["all","adf","dbx","sql"], title:"QA deploy fails part-way",
+  what:"SQL deployed but Databricks or ADF failed, so QA is in a mixed state.",
+  wait:"QA team; the queue is held.", signal:"deploy-qa red at one step.",
+  prevent:["Same build steps already ran in DEV"],
+  fix:["Re-run the deploy (all steps are safe to repeat)","If it's a code problem, drop and re-cut"], status:"Open"},
+ {id:"R20", node:"qatest", types:["all","adf","dbx","sql"], title:"Test source or data unavailable",
+  what:"The QA source system or test data is down, so testing can't proceed.",
+  wait:"QA, and everyone behind the queue.", signal:"QA reports environment issues.",
+  prevent:["Check sources before cutting","Agree QA data refresh times"],
+  fix:["Pause the release clock; escalate to the source owner"], status:"Open"},
+ {id:"R21", node:"qatest", types:["all","adf","dbx","sql"], title:"Story fails QA",
+  what:"Drop, label, re-cut the passing PRs, and test again. The more PRs in the release, the more re-testing.",
+  wait:"Every developer in that release, plus the queue.", signal:"QA fails a story.",
+  prevent:["Strong Gate 0 testing","Smaller releases"],
+  fix:["drop-release → re-cut passing PRs → fix PR for the failed one"], status:"Decided"},
+ {id:"R22", node:"qaenv", types:["all","adf","dbx","sql"], title:"Manual change in QA/UAT",
+  what:"Someone edits a config row or pipeline by hand. Tests pass on something that isn't in Git; the next deploy overwrites it.",
+  wait:"QA re-tests.", signal:"Behaviour differs from what's in the release.",
+  prevent:["No write access for people in QA/UAT/PROD","All changes through PRs"], fix:["Redeploy the release; make the change through a PR"], status:"Decided"},
+ {id:"R23", node:"uatok", types:["all","adf","dbx","sql"], title:"Approver unavailable",
+  what:"The QA lead (UAT approval) or release manager (PROD approval) is away.",
+  wait:"The release, and the queue behind it.", signal:"Run waiting for review.",
+  prevent:["At least two named approvers per environment"], fix:["Backup approver approves"], status:"Open"},
+ {id:"R24", node:"uatenv", types:["all","adf","dbx","sql"], title:"Business sign-off slow",
+  what:"Business users are busy; UAT stretches over days or weeks.",
+  wait:"Everyone behind the queue.", signal:"Release in UAT longer than planned.",
+  prevent:["Book the UAT slot when the release is cut","Time limit, then ship the signed-off part or drop"],
+  fix:["Release manager decides: wait, ship, or drop"], status:"Open"},
+ {id:"R25", node:"uatdeploy", types:["all","adf","dbx","sql"], title:"Approval expires after 30 days",
+  what:"GitHub fails a job that waits more than 30 days for approval.",
+  wait:"Release manager re-runs.", signal:"Run failed: approval timeout.",
+  prevent:["Time limit well under 30 days"], fix:["Re-run the job from the same build (no rebuild)"], status:"Decided"},
+ {id:"R26", node:"uatenv", types:["all","adf","dbx","sql"], title:"Story fails UAT late",
+  what:"The most expensive failure: drop, re-cut, back through QA and UAT.",
+  wait:"Everyone in the release and behind the queue.", signal:"Business rejects a story.",
+  prevent:["Show business the change early (demo in QA)","Clear acceptance criteria on the story"],
+  fix:["Same as a QA failure"], status:"Decided"},
+ {id:"R27", node:"cr", types:["all","adf","dbx","sql"], title:"CR approval slow or window far away",
+  what:"The release is signed off but waits for CR approval or its change window, still holding the queue.",
+  wait:"Everyone behind the queue.", signal:"Release ready, deploy-prod not started.",
+  prevent:["Raise the CR at the start of UAT","Know the change calendar and freezes"],
+  fix:["Decide: hold the queue, or let the next release start QA (option to agree)"], status:"Open"},
+ {id:"R28", node:"cr", types:["all","adf","dbx","sql"], title:"CR doesn't match the release",
+  what:"The CR lists different PRs, or the wrong release ID.", wait:"Release manager.", signal:"Manual check finds a mismatch.",
+  prevent:["Paste the generated CR text"], fix:["Correct the CR before PROD"], status:"Decided"},
+ {id:"R29", node:"proddeploy", types:["all","adf","dbx","sql"], title:"PROD deploy fails part-way",
+  what:"Some components updated, some not; PROD in a mixed state during business hours.",
+  wait:"Business users.", signal:"deploy-prod red at a step.",
+  prevent:["Same build already deployed to QA and UAT","Deploy in the change window"],
+  fix:["Re-run the failed step (safe to repeat)","Or redeploy the previous prod/* build","SQL data changes need the backout script"], status:"Open"},
+ {id:"R30", node:"prodok", types:["all","adf","dbx","sql"], title:"Hotfix needed while a release is in progress",
+  what:"PROD is broken but the queue holds another release.",
+  wait:"PROD users; the in-progress release.", signal:"Incident raised.",
+  prevent:["n/a"], fix:["Option A: drop the release, ship the hotfix, re-cut","Option B: hotfix path that skips the queue; the in-progress release then re-cuts (stale-baseline check)"], status:"Open"},
+ {id:"R31", node:"prodenv", types:["all","adf","dbx"], title:"Jobs running during deploy",
+  what:"Stopping ADF triggers or redeploying jobs while loads run can leave partial loads.",
+  wait:"Data consumers.", signal:"Failed or partial runs around deploy time.",
+  prevent:["Deploy window outside load schedules","Check for active runs before stopping triggers"], fix:["Re-run affected loads"], status:"Open"},
+ {id:"R32", node:"prodenv", types:["sql"], title:"Wrong config row in PROD",
+  what:"Pipelines read config immediately, so a bad PROD value (source server, path) breaks loads at once.",
+  wait:"Data consumers.", signal:"PROD pipeline failures right after release.",
+  prevent:["Values from settings/prod.json, reviewed in the PR","Same config pattern tested in QA/UAT"],
+  fix:["Hotfix PR with the corrected MERGE file","Or redeploy the previous build plus backout script"], status:"Decided"},
+ {id:"R33", node:"merge", types:["all","adf","dbx","sql"], title:"Access or network breaks",
+  what:"An expired identity or federated credential, runners that can't reach private endpoints, or a release-bot key expired. Every deploy stops.",
+  wait:"Everyone.", signal:"Login or connection errors in every workflow.",
+  prevent:["Daily pre-flight job that checks each environment's access","Expiry reminders for the bot key"],
+  fix:["Admin restores access; re-run"], status:"Proposed"},
+];
+const WAITS = [
+ ["Developer → tech lead","PR reviews","Two or more reviewers, one-day review target, small PRs"],
+ ["Developer → developer","Same pipeline or config key; dependency in the cut","One story per pipeline, one MERGE file per key, release dependent PRs together"],
+ ["Everyone → release in progress","Queue held during QA/UAT","Small, frequent releases; time limit; drop stalled releases"],
+ ["Everyone → QA / business","Testing and sign-off","Book UAT when cutting; demo early; clear acceptance criteria"],
+ ["Everyone → release manager / CR","CR approval and change window","Raise the CR at the start of UAT; backup approvers"],
+ ["Everyone → DEV","Broken DEV breaks every feature copy","DEV failures first; revert within the day"],
+ ["Everyone → access","Identity, network, bot key","Daily pre-flight access check"],
+];
+const PLAYBOOK = [
+ ["Stop the line","Don't cut new releases; tell the team. The queue already blocks cuts while a release is in progress."],
+ ["Contain","Drop the release, revert the PR, or pause the ADF trigger, whichever stops the damage fastest."],
+ ["Find the evidence","Workflow run, manifest (PRs, commits), ADF/Databricks run IDs, sqlpackage log."],
+ ["Recover","Re-run the failed step (all deploy steps are safe to repeat) or redeploy the last prod/* build."],
+ ["Communicate","Update the stories and the CR; one owner speaks for the incident."],
+ ["Prevent next time","Add a check, a rule or a test so it can't recur; record it in DECISIONS.md."],
+];
 
 draw(); apply(); renderDefs();
 $("#playBtn").textContent=st.playing?"Pause":"Play";
