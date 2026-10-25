@@ -30,9 +30,10 @@ story fails QA, CR doesn't match.
 ## Azure SQL config DB: test on the feature branch
 
 Config scripts for the standalone Azure SQL ETL config DB used to reach a database only after merge to
-`main`, so ADF could only be tested after merging. Now each feature branch gets its own DB
-(`sqldb-etlcfg-ft-<story>` = copy of DEV + the branch's DACPAC and config rows) via
-`pipelines/feature-env.yml`, and ADF is debugged against it before the PR.
+`main`, so ADF could only be tested after merging. Now each developer has one fixed config DB
+(`sqldb-etlcfg-dev-<alias>`), leased to one branch at a time, refreshed from DEV at story start and reset
+automatically when the PR merges or closes (decision D-28). Merged branches are always deleted (D-29).
+Details: [HANDOFF.md §5.4](HANDOFF.md). The images below show the earlier per-branch version.
 
 | Today | Proposed |
 |---|---|

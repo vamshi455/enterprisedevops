@@ -49,7 +49,7 @@ out.append("""
 | D-08 | Azure Boards stories linked by `AB#<id>`; the release moves story states | Stories live in Azure Boards |
 | D-09 | CR gate before PROD: approved, in window, CR PR list = manifest (checked by hand, see D-27) | Ties the CR to the exact PRs |
 | D-10 | Reuse existing managed identities via OIDC federated credentials; no Azure secrets in GitHub | Admin requirement; identities must be user-assigned |
-| D-11 | Per-branch config DB copy `sqldb-etlcfg-ft-<id>` (copy of DEV + branch scripts), dropped on PR close | Config testable on the branch (§5.4) |
+| D-11 | ~~Per-branch config DB copy~~ **Superseded by D-28** (per-developer DB) | — |
 | D-12 | Config data as one idempotent MERGE per key; runtime tables never deployed | Clean cherry-picks; protects environment state |
 | D-13 | Databricks feature isolation via bundle development mode | Built-in per-developer isolation |
 | D-14 | Deploy order: Azure SQL config → Unity Catalog → Databricks → ADF | Dependencies first |
@@ -66,6 +66,8 @@ out.append("""
 | D-25 | Fix forward by default; revert only if the story is abandoned, it breaks DEV, or it blocks another cut; reverts via GitHub Revert + explicit config-row delete script (§5.7c) | Releases only take listed PRs, so bad PRs on main are contained |
 | D-26 | Cut guards: preview before cut (blocking), `failed-qa`/`failed-uat` label blocks a PR unless its fix is listed (blocking), ownership/sprint check (warning) (§5.7b) | Human error in picking PRs |
 | D-27 | **No ServiceNow integration.** CRs raised and approved by hand; release manager checks the CR before PROD and enters its number in `deploy-prod`; workflow generates the CR text (§5.8) | ServiceNow integration takes too long at Shell |
+| D-28 | **One fixed config DB per developer** `sqldb-etlcfg-dev-<alias>` (supersedes D-11). Leased to one branch at a time; refreshed from DEV at story start; incremental deploys on push; reset to a clean DEV copy when the PR merges or closes; nightly: 7-day warning, 14-day reset, roster sync; name guard (§5.4) | Isolation without per-branch create/drop; fixed cost; strictly never stale |
+| D-29 | **Feature branches are deleted once merged, no exceptions.** Auto-delete head branches ON; draft PR opened for every new branch so it can be restored; closed-unmerged deleted nightly; stale at 14 days, closed at 21; branch-name ruleset; `release/<id>` deleted after its tag (§5.4) | Only `main` is long-lived; no stale branches |
 
 ### 5.15 Things that are easy to get wrong
 
@@ -80,7 +82,7 @@ out.append("""
 - **Overlapping PRs on the same file.** If two PRs change the same ADF pipeline (or the same config key) and only the later one
   is released, the cherry-pick conflicts. The release tool catches it and names the missing PR, but the team should keep to one
   story per pipeline at a time and release dependent PRs together.
-- **main drifts from PROD.** Unreleased PRs accumulate on `main`, so DEV and every feature copy contain work that is not in PROD
+- **main drifts from PROD.** Unreleased PRs accumulate on `main`, so DEV and every developer DB contain work that is not in PROD
   yet. Review the `candidates` list (unreleased PRs) at every release planning and keep it short.
 - **ADF debug proves logic, not operations.** Debug runs do not exercise triggers, and they use the DEV integration runtime and
   DEV data. Scheduling, volume and performance are first proven in QA.

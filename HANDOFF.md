@@ -1,6 +1,6 @@
 # Shell Data Platform CI/CD: Handoff for the Local Coding Agent
 
-Version 1.6 · 25 Oct 2026 · Owner: Vamshi Singam (lead)
+Version 1.7 · 25 Oct 2026 · Owner: Vamshi Singam (lead)
 
 This file is **self-contained**. It holds the full context, target architecture, specifications, conventions,
 access requirements and reference code. No other repository or document is needed.
@@ -50,7 +50,7 @@ PROD), Microsoft Entra ID (existing managed identities must be reused).
 
 ### Principles
 
-- **Every feature is fully tested on its own feature branch, isolated per developer.** Only approved, tested PRs reach `main`.
+- **Every feature is fully tested on its own feature branch, against the developer's own config DB.** Only approved, tested PRs reach `main`.
 - **A release is a list of PRs**: never individual commits, never all of `main`.
 - **Build once, deploy many**: QA, UAT and PROD receive the identical artifact.
 - **No Azure secrets in GitHub**: OIDC federated credentials on the existing managed identities.
@@ -160,7 +160,7 @@ Stop. Report the answers, the top 5 risks, and anything you could not access.
 | 4.1 Repo scaffold | `shell-data-platform` repo layout per §5.2 using real names; import existing ADF/Databricks/SQL content as found in Phase 2; `settings/<env>.json` per §5.13 plus a script that renders ADF ARM parameters, bundle variables and SQLCMD variables from it; CODEOWNERS; PR template; README | Builds locally: `dotnet build sqlconfig`, `databricks bundle validate -t dev`, ADF `npm run build validate` |
 | 4.2 Release tool | Port Appendix A to `scripts/release/`, add the **GitHub provider** (§5.7); port the tests (Appendix B) and add GitHub-provider tests with a mocked API | `pytest` green |
 | 4.3 PR validation | `.github/workflows/pr-validation.yml` per §5.6; `docs/branch-protection.md` with the ruleset to request | Workflow green on a test PR; fails without AB# or Feature-Test-Run |
-| 4.4 Feature environment | `feature-env.yml`, `feature-cleanup.yml`; ADF `configDb` parameterisation (§5.4); `docs/feature-testing.md` | One branch gets its own DB; ADF debug against it succeeds; DB dropped after PR close |
+| 4.4 Developer DBs and branch hygiene | `infra/devdbs.json`, `devdb.yml`, `devdb-reset.yml`, `devdb-hygiene.yml`, `branch-hygiene.yml`, `Sanitise-DevDb.sql`; ADF `configDb` parameterisation (§5.4); `docs/feature-testing.md` | `start` leases and refreshes one developer's DB; ADF debug against it succeeds; merging the PR deletes the branch and resets the DB; the guard refuses a non-roster name |
 | 4.5 Deploy DEV | reusable `deploy-env.yml` + `deploy-dev.yml` (§5.6, §5.10) | Merge to main deploys DEV in the right order |
 | 4.6 Release | `release.yml` (preview + confirm, queue, cut guards, CR text), `deploy-prod.yml` and `drop-release.yml` (§5.6–5.9, §5.7a–d). Do **not** port Appendix C (ServiceNow integration deferred) | Dry-run (`plan`) correct; a real release of one PR reaches QA |
 | 4.7 Pilot | One real story end-to-end; `pilot/PILOT_REPORT.md` | Story reaches QA (and UAT if approvers are available) through the new path |
@@ -223,7 +223,7 @@ shell-data-platform/
 
 | Gate | When | Checks | Enforced by |
 |---|---|---|---|
-| 0 Feature test | Before PR | Branch tested end-to-end: ADF debug against the branch's own config DB and the developer's bundle. Evidence = the ADF debug **run ID** in the PR | `feature-env` workflow + PR check |
+| 0 Feature test | Before PR | Branch tested end-to-end: ADF debug against the developer's own config DB (leased to this branch) and the developer's bundle. Evidence = the ADF debug **run ID** in the PR | `devdb` workflow + PR check |
 | 1 PR → main | Every PR | See "Gate 1 checks" below | Ruleset on `main` + `pr-validation` |
 | — | Merge to main | Deploys DEV (integration check, not the first test) | `deploy-dev` |
 | 2 Release cut | Manual, **any developer** for their own PRs | **Release queue: refused if another release is in progress** (§5.7a); listed PRs merged, squash, linked, not in prod; ordered by merge; cherry-picked onto the latest `prod/*` tag; dependency/conflict check | `release` → `build_release.py` |
@@ -240,7 +240,7 @@ run exists, **succeeded**, and is recent (debug runs are kept only for a limited
 **Gate 1 checks (all required on every PR to `main`)**
 1. **Description** follows the PR template: what changed, why, how it was tested, per project type touched (ADF / Databricks / SQL config).
 2. **Linked story**: `AB#<id>` from Azure Boards, one story per PR.
-3. **Feature test proof**: `Feature-Test-Run: <run id>`, verified by the pipeline as a successful ADF run (above).
+3. **Feature test proof**: `Feature-Test-Run: <run id>`, verified by the pipeline as a successful ADF run against the author's DB at the PR's commit (above, §5.4).
 4. **Reviewer**: tech lead from CODEOWNERS approves; the author cannot approve their own PR; new pushes after approval reset it.
 5. **Automated checks pass**: ADF validate, `databricks bundle validate`, SQL project (DACPAC) build, unit tests, settings files have identical keys (§5.13).
 6. **No secrets and no hardcoded environment values** (server names, storage accounts, URLs) in code: a scan blocks the PR.
@@ -257,42 +257,67 @@ run exists, **succeeded**, and is recent (debug runs are kept only for a limited
 Branch names: `feature/AB#<id>-<desc>`, `bugfix/AB#<id>-<desc>`, `hotfix/AB#<id>-<desc>` (branched from the latest `prod/*` tag,
 PR into main, then released alone with an emergency CR). `release/<id>` and `prod/<id>` are created only by the release-bot app.
 
-### 5.4 Feature-branch isolation (the key change)
+### 5.4 Per-developer test database (the key change; decisions D-28, D-29)
 
-**Azure SQL config DB**
-- On push to `feature/**` or `bugfix/**` that touches `sqlconfig/**` (or on manual dispatch), the `feature-env` workflow:
-  1. derives `<id>` from `AB#<id>` in the branch name (fails if absent)
-  2. drops `sqldb-etlcfg-ft-<id>` if present, then `az sql db copy` from the DEV config DB into it. Use the
-     `pool-etlcfg-feature` elastic pool on the DEV server, and tag the copy with `branch` and `createdBy`.
-     DEV always equals `main`, so the copy contains every merged change.
-  3. builds the branch DACPAC and publishes it to the copy with DEV SQLCMD values (`/p:BlockOnPossibleDataLoss=true`)
-  4. grants the developers group `db_datawriter` on the copy. The deploy identity is `db_owner` in DEV, and that user is copied too.
-  5. prints the ADF debug parameters to use
-- `feature-cleanup` runs on `pull_request: closed` and nightly. It drops `sqldb-etlcfg-ft-*` whose branch is gone or that are older than 14 days.
-- Database users created `FROM EXTERNAL PROVIDER` are copied with the DB, so the factory MI keeps access to the copy.
+Each developer has **one fixed config DB** of their own, `sqldb-etlcfg-dev-<alias>`. Feature databases are no longer created
+and dropped per branch (D-11 is superseded). The database never branches; only the scripts in Git do. A developer's DB is
+always either **free** (a clean copy of DEV) or **leased** to exactly one of their branches.
 
-**How the feature copy behaves (read before building)**
-- The database itself never branches; only the scripts in Git do. The copy is a snapshot of DEV *at the moment it is taken*:
-  source system details, column lists, flags **and the current watermarks**. The branch's schema changes and config MERGE
-  scripts are applied on top.
-- While testing, ADF debug runs read and advance watermarks **only in the copy**. DEV's watermarks are never touched.
-- At merge, **nothing flows back from the copy**. Only the scripts merge to `main` and are applied to DEV by `deploy-dev`.
-  The copy is then dropped.
-- **Watermarks may need resetting.** The copy starts where DEV left off, so a feature run can pull zero rows.
-  `docs/feature-testing.md` must show developers how to set a watermark back in their copy to test a real load.
-- **Copies go stale.** A copy does not see config changes merged after it was taken. Re-run `feature-env` (manual dispatch)
-  to refresh it on long-lived branches.
-- **Only the config is isolated, not where data lands.** If feature runs write to the same DEV lake paths or tables as everyone
-  else, they collide. Feature runs must write to a per-branch or per-developer target (e.g. lake folder `…/_feature/<storyId>/`
-  and the developer's `dev_<user>` schema), passed as pipeline parameters. Open question OQ-09.
+**Roster.** `infra/devdbs.json` lists `alias` and Entra UPN for each developer. It is changed by PR only (CODEOWNERS = tech lead).
+A new developer = PR to add them; a leaver = PR to remove them. The nightly sweep creates missing DBs and deletes DBs not in the roster.
+
+**Lifecycle (all automatic except "start")**
+
+| When | What happens | Workflow |
+|---|---|---|
+| **Start a story** (developer, from their branch: Actions → `devdb` → `start`) | Fails if the DB is leased to another open branch (finish or abandon it first). If DEV was deployed since the DB was copied, drop and re-copy from DEV, **wait for the copy to finish and verify it** (state Online; config table row counts and DACPAC version match DEV). **Sanitise** (below). Add the developer as a DB user. Publish the branch DACPAC and config rows. Set the lease tags `branch`, `story`, `sha`, `leasedAt` on the DB | `devdb` |
+| **Every push** to the leased branch that touches `sqlconfig/**` | Incremental publish of the DACPAC and config MERGEs (no re-copy); update the `sha` tag. Fails if the DB is leased to another branch | `devdb` |
+| **Update branch from `main`** | The push above applies everything merged since, so the DB keeps up with DEV without a re-copy | `devdb` |
+| **PR merged or closed, or branch deleted** | **Reset**: drop the DB, re-copy from DEV (after `deploy-dev` finishes, so it includes the merge), sanitise, clear the lease. The DB is free and clean | `devdb-reset` |
+| **Nightly, strict** | (1) Leased branch gone or its PR merged/closed → reset. (2) No push to the leased branch for **7 days** → warning comment on the PR, mentioning the owner. (3) **14 days** → reset and clear the lease (the branch's scripts are in Git, so nothing is lost; `start` rebuilds it). (4) DB not in the roster → delete; roster entry without a DB → create. (5) Post a table of every DB, its lease and its age to the job summary | `devdb-hygiene` |
+
+**Sanitise after every copy** (copied DEV config must not let a test run touch shared things)
+- Rewrite output targets in the copied config to the developer's own: lake folder `…/_feature/<alias>/`, schema `dev_<alias>`.
+- Disable anything that schedules or triggers by itself (for example `is_scheduled = 0`).
+- Leave watermarks as copied; `docs/feature-testing.md` shows how to set one back to test a real load.
+- The sanitise script lives in `sqlconfig/Scripts/Sanitise-DevDb.sql` and is **never** part of the DACPAC.
+
+**Guards (the workflows refuse to act otherwise)**
+- Target name must match `^sqldb-etlcfg-dev-[a-z0-9]+$` **and** be in the roster. Any other name, including the DEV, QA, UAT
+  and PROD config DBs, is refused before any drop, copy or deploy.
+- Copy source is fixed to the DEV config DB on the DEV server; it is not an input.
+- The deploy identity has rights on the DEV SQL server only.
+- One DB per developer and one leased branch per DB. A second slot only by tech-lead decision, recorded in DECISIONS.md.
+
+**Gate 1 tie-in.** The PR check verifies the `Feature-Test-Run` debug run succeeded **and** that its `configDb` parameter is the
+PR author's DB **and** that the DB's `sha` tag equals the PR head commit (or a later commit that changed no `sqlconfig/**` files).
+This proves the scripts that were tested are the scripts in the PR.
+
+**How the copy behaves**
+- A copy is a snapshot of DEV *when it is taken*, including watermarks. Debug runs advance watermarks **only in the developer's DB**.
+- Nothing flows back at merge. Only the scripts merge to `main` and `deploy-dev` applies them to DEV.
 - **Runtime tables (watermarks, run logs) must never appear in deploy scripts**, or a release would overwrite QA/UAT/PROD state.
+- Database users created `FROM EXTERNAL PROVIDER` are copied with the DB, so the factory managed identity keeps access.
+
+**Branch hygiene (mandatory, D-29)**
+- Repo setting **Automatically delete head branches = ON**: a branch is deleted the moment its PR is merged.
+- On the first push of a new branch, `branch-hygiene` **opens a draft PR** for it (title from the branch, `AB#` linked). Every
+  branch therefore has a PR, so any deleted branch can be restored from the PR page ("Restore branch").
+- Nightly `branch-hygiene`: delete branches whose PR is closed without merge; label a PR `stale` after **14 days** without a push
+  and comment to the owner; **close it after 21 days** (its branch is deleted and its DB reset).
+- Branch-name ruleset: only `feature/AB#*`, `bugfix/AB#*`, `hotfix/AB#*` may be created by people; `release/*` only by the
+  release-bot; everything else is refused.
+- `release/<id>` is deleted by `deploy-prod` after the `prod/<id>` tag and by `drop-release` after the `dropped/<id>` tag; the tag keeps the history.
+- **No exceptions.** Rework after merge is a new branch and PR from `main` (D-24); a revert uses GitHub's Revert, which makes its own
+  branch under the same rules. The only long-lived branch is `main`.
+- Developers set `git config --global fetch.prune true` so deleted branches disappear from their clones.
 
 **ADF**
 - Only the DEV factory is Git-connected (collaboration branch `main`, root folder `/adf`), with **Disable publish** ON.
 - The config DB linked service is parameterised: `"parameters": {"dbName": {"type":"String","defaultValue":"<dev config db>"}}`
   and `Initial Catalog=@{linkedService().dbName}`. Every pipeline that reads config has a `configDb` parameter
   (default = DEV DB) passed through datasets to the linked service. QA/UAT/PROD values come from ARM parameter files.
-- Developers debug in ADF Studio on their branch with `configDb = sqldb-etlcfg-ft-<id>`, and paste the run id into the PR.
+- Developers debug in ADF Studio on their branch with `configDb = sqldb-etlcfg-dev-<alias>`, and paste the run id into the PR.
 
 **Databricks**
 - Developers run `databricks bundle deploy -t dev` themselves. The `dev` target uses `mode: development`, which prefixes
@@ -318,8 +343,10 @@ record the choice in `DECISIONS.md`. Examples are in Appendix D.
 | Workflow | Trigger | Environment | Identity | Steps |
 |---|---|---|---|---|
 | `pr-validation` | `pull_request` → main | none | CI identity (federated subject `…:pull_request`) | pr-template fields (Release-Note, Depends-On, Rollback) · story-link (AB#) · feature-test-evidence (ADF API: run succeeded) · secrets/hardcoded-values scan · settings-keys-match · adf-validate (`npm run build validate`) · bundle-validate · sql-build (DACPAC) · unit-tests · aggregate job `pr-validation` = required check. Path filters per folder. Permissions `id-token: write`, `contents: read`. |
-| `feature-env` | push `feature/**`, `bugfix/**` (sqlconfig changes) + dispatch | `dev-feature` | DEV deploy identity | §5.4 |
-| `feature-cleanup` | `pull_request: closed` + nightly | `dev-feature` | DEV deploy identity | §5.4 |
+| `devdb` | dispatch `start` from a branch + push `feature/**`, `bugfix/**`, `hotfix/**` (sqlconfig changes) | `dev-feature` | DEV deploy identity | lease, refresh, verify, sanitise, publish (§5.4) |
+| `devdb-reset` | `pull_request: closed` + `delete` (branch) | `dev-feature` | DEV deploy identity | reset the author's DB and clear the lease (§5.4) |
+| `devdb-hygiene` | nightly | `dev-feature` | DEV deploy identity | 7-day warning, 14-day reset, roster sync, report (§5.4) |
+| `branch-hygiene` | `create` (branch) + nightly | none | `GITHUB_TOKEN` (`contents: write`, `pull-requests: write`) | draft PR for new branches; delete closed-unmerged branches; stale at 14 days, close at 21 (§5.4) |
 | `deploy-dev` | push main (ignore docs/**) | `dev` | DEV deploy identity | calls `deploy-env` with `env: dev` |
 | `deploy-env` (reusable) | `workflow_call` (input `env`) | the env | that env's identity | §5.10 order |
 | `drop-release` | `workflow_dispatch`: `release_id`, `reason` | `release-cut` | release-bot | tag `dropped/<id>`, delete `release/<id>`, comment on stories, free the queue (§5.7a) |
@@ -461,8 +488,8 @@ config MERGEs are idempotent; destructive SQL needs a backout script attached to
 
 | Item | Pattern |
 |---|---|
-| Feature config DB | `sqldb-etlcfg-ft-<storyId>` |
-| Feature elastic pool | `pool-etlcfg-feature` (DEV SQL server) |
+| Developer config DB | `sqldb-etlcfg-dev-<alias>` (one per developer, roster `infra/devdbs.json`) |
+| Developer DB elastic pool | `pool-etlcfg-devdb` (DEV SQL server) |
 | Release id / branch / tag | `R<yyyy.MM.dd>[.n]` · `release/<id>` · `prod/<id>` |
 | GitHub environments | `dev-feature`, `dev`, `release-cut`, `qa`, `uat`, `prod` |
 | ADF objects | `pl_`, `ds_`, `ls_`, `tr_` prefixes |
@@ -490,13 +517,14 @@ Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release
 | GH-10 | Environment secrets | UAT, PROD | Store ServiceNow integration credentials as secrets in the 'prod' environment only (and 'uat' if the CR is checked before UAT) _(Note: NOT NEEDED NOW: ServiceNow integration deferred; CRs are manual (D-27))_ | Gate 4 reads and updates the change request | P3 |
 | GH-11 | Third-party app access | DEV | Approve the 'Azure Data Factory' and 'Databricks' GitHub apps / OAuth apps for the org (if OAuth app access restrictions are on) _(Note: Blocking for feature testing)_ | DEV factory Git mode and Databricks Git folders must read feature branches: this is what makes feature-branch testing possible | P1 |
 | GH-12 | GitHub Actions runners | DEV, QA, UAT, PROD | GitHub-hosted runners if Azure endpoints are public. If ADF/SQL/Databricks are private: self-hosted runners in a VNet with line of sight (or GitHub-hosted runners with Azure private networking), registered to this repo _(Note: Depends on OQ-03)_ | Runners must reach SQL (DACPAC), Databricks and ARM endpoints | P1 |
+| GH-13 | Ruleset: branch names | — | Target all branches except main, feature/AB#*, bugfix/AB#*, hotfix/AB#*; rule: restrict creations (bypass: release-bot for release/*). Keep auto-delete head branches ON (GH-03) | Mandatory branch hygiene (D-29): only story branches exist, and they are deleted once merged | P1 |
 
 **Entra ID admin / identity owner**
 
 | ID | Principal / target | Env | Permission / action | Why | Phase |
 |---|---|---|---|---|---|
 | ID-01 | Existing managed identities | DEV, QA, UAT, PROD | Confirm each identity we reuse is USER-assigned and give: name, client ID, object ID, resource group, tenant ID _(Note: If they are system-assigned, request one user-assigned identity per environment instead (see OQ-04))_ | GitHub can only sign in through a user-assigned identity (or app registration); system-assigned identities (for example the factory's own) cannot take federated credentials | P1 |
-| ID-02 | Deploy identity – DEV | DEV | Add federated credentials: issuer https://token.actions.githubusercontent.com, audience api://AzureADTokenExchange, subjects repo:<shell-org>/shell-data-platform:environment:dev and …:environment:dev-feature _(Note: Needs Contributor/Owner on the identity to add)_ | deploy-dev and feature-env workflows | P1 |
+| ID-02 | Deploy identity – DEV | DEV | Add federated credentials: issuer https://token.actions.githubusercontent.com, audience api://AzureADTokenExchange, subjects repo:<shell-org>/shell-data-platform:environment:dev and …:environment:dev-feature _(Note: Needs Contributor/Owner on the identity to add)_ | deploy-dev and devdb workflows | P1 |
 | ID-03 | CI identity (read-only) – DEV | DEV | Federated credential subject repo:<shell-org>/shell-data-platform:pull_request (a separate low-privilege identity is preferred; DEV deploy identity acceptable) | pr-validation runs ADF validate and bundle validate against DEV | P1 |
 | ID-04 | Deploy identity – QA, UAT | QA, UAT | Federated credentials with subjects …:environment:qa and …:environment:uat (on each environment's identity) | release workflow QA and UAT jobs | P2 |
 | ID-05 | Deploy identity – PROD | PROD | Federated credential with subject …:environment:prod | release workflow PROD job (runs only after release-manager approval) | P3 |
@@ -507,8 +535,8 @@ Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release
 | ID | Principal / target | Env | Permission / action | Why | Phase |
 |---|---|---|---|---|---|
 | AZ-01 | Deploy identity – each env | DEV, QA, UAT, PROD | Data Factory Contributor on the resource group that holds that environment's factory | ARM template deployment, stop/start triggers, delete removed pipelines | P1 DEV · P2 QA/UAT · P3 PROD |
-| AZ-02 | Deploy identity – DEV | DEV | SQL DB Contributor on the DEV SQL logical server _(Note: DEV only)_ | Create, copy and drop feature databases sqldb-etlcfg-ft-<story> | P1 |
-| AZ-03 | DEV SQL logical server | DEV | Create elastic pool 'pool-etlcfg-feature' (small, e.g. GP 2 vCore or 50–100 eDTU) on the DEV server; name a cost owner _(Note: Sizing/cost decision (OQ-05))_ | Feature databases share one capped pool; nightly cleanup keeps it small | P1 |
+| AZ-02 | Deploy identity – DEV | DEV | SQL DB Contributor on the DEV SQL logical server _(Note: DEV only)_ | Create, copy, reset and delete the per-developer databases sqldb-etlcfg-dev-<alias> | P1 |
+| AZ-03 | DEV SQL logical server | DEV | Create elastic pool 'pool-etlcfg-devdb' (small, e.g. GP 2 vCore or 50–100 eDTU) on the DEV server; name a cost owner _(Note: Sizing/cost decision (OQ-05))_ | One database per developer shares one capped pool; cost is fixed by team size | P1 |
 | AZ-04 | Deploy identity – each env | DEV, QA, UAT, PROD | Reader on the environment's data-platform resource group(s) | Look up resource IDs, run ARM what-if | P1 DEV · P2 QA/UAT · P3 PROD |
 | AZ-05 | grp-data-developers | DEV | Data Factory Contributor on the DEV factory only _(Note: No write access to QA/UAT/PROD factories)_ | Author in Git mode and debug pipelines on feature branches | P1 |
 | AZ-06 | grp-data-developers | QA, UAT, PROD | Reader (or Data Factory monitoring via Reader) on QA/UAT/PROD factories | Monitor runs without changing anything | P2 |
@@ -520,9 +548,9 @@ Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release
 | ID | Principal / target | Env | Permission / action | Why | Phase |
 |---|---|---|---|---|---|
 | SQL-01 | Each config SQL logical server | DEV, QA, UAT, PROD | Confirm Microsoft Entra admin is set and Entra authentication is enabled; give server and database names | Identities sign in without passwords | P1 |
-| SQL-02 | Deploy identity – each env | DEV, QA, UAT, PROD | In the config DB: CREATE USER [<deploy-identity>] FROM EXTERNAL PROVIDER; ALTER ROLE db_owner ADD MEMBER [<deploy-identity>] _(Note: In DEV this user is copied into every feature DB automatically)_ | DACPAC deploys schema, permissions and config rows | P1 DEV · P2 QA/UAT · P3 PROD |
-| SQL-03 | Factory managed identity (existing) – each env | DEV, QA, UAT, PROD | Verify it is a user in the config DB with db_datareader, db_datawriter and EXECUTE _(Note: Verification only)_ | ADF reads config and writes watermarks; copied into feature DBs automatically | P1 |
-| SQL-04 | grp-data-developers | DEV | db_datareader on sqldb-etlcfg-dev | Inspect config; the feature-env workflow grants write access on each feature DB itself | P1 |
+| SQL-02 | Deploy identity – each env | DEV, QA, UAT, PROD | In the config DB: CREATE USER [<deploy-identity>] FROM EXTERNAL PROVIDER; ALTER ROLE db_owner ADD MEMBER [<deploy-identity>] _(Note: In DEV this user is copied into every developer DB automatically)_ | DACPAC deploys schema, permissions and config rows | P1 DEV · P2 QA/UAT · P3 PROD |
+| SQL-03 | Factory managed identity (existing) – each env | DEV, QA, UAT, PROD | Verify it is a user in the config DB with db_datareader, db_datawriter and EXECUTE _(Note: Verification only)_ | ADF reads config and writes watermarks; copied into developer DBs automatically | P1 |
+| SQL-04 | grp-data-developers | DEV | db_datareader on sqldb-etlcfg-dev | Inspect config; the devdb workflow adds each developer to their own DB itself | P1 |
 
 **Databricks account admin**
 
@@ -602,7 +630,7 @@ Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release
 | D-08 | Azure Boards stories linked by `AB#<id>`; the release moves story states | Stories live in Azure Boards |
 | D-09 | CR gate before PROD: approved, in window, CR PR list = manifest (checked by hand, see D-27) | Ties the CR to the exact PRs |
 | D-10 | Reuse existing managed identities via OIDC federated credentials; no Azure secrets in GitHub | Admin requirement; identities must be user-assigned |
-| D-11 | Per-branch config DB copy `sqldb-etlcfg-ft-<id>` (copy of DEV + branch scripts), dropped on PR close | Config testable on the branch (§5.4) |
+| D-11 | ~~Per-branch config DB copy~~ **Superseded by D-28** (per-developer DB) | — |
 | D-12 | Config data as one idempotent MERGE per key; runtime tables never deployed | Clean cherry-picks; protects environment state |
 | D-13 | Databricks feature isolation via bundle development mode | Built-in per-developer isolation |
 | D-14 | Deploy order: Azure SQL config → Unity Catalog → Databricks → ADF | Dependencies first |
@@ -619,6 +647,8 @@ Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release
 | D-25 | Fix forward by default; revert only if the story is abandoned, it breaks DEV, or it blocks another cut; reverts via GitHub Revert + explicit config-row delete script (§5.7c) | Releases only take listed PRs, so bad PRs on main are contained |
 | D-26 | Cut guards: preview before cut (blocking), `failed-qa`/`failed-uat` label blocks a PR unless its fix is listed (blocking), ownership/sprint check (warning) (§5.7b) | Human error in picking PRs |
 | D-27 | **No ServiceNow integration.** CRs raised and approved by hand; release manager checks the CR before PROD and enters its number in `deploy-prod`; workflow generates the CR text (§5.8) | ServiceNow integration takes too long at Shell |
+| D-28 | **One fixed config DB per developer** `sqldb-etlcfg-dev-<alias>` (supersedes D-11). Leased to one branch at a time; refreshed from DEV at story start; incremental deploys on push; reset to a clean DEV copy when the PR merges or closes; nightly: 7-day warning, 14-day reset, roster sync; name guard (§5.4) | Isolation without per-branch create/drop; fixed cost; strictly never stale |
+| D-29 | **Feature branches are deleted once merged, no exceptions.** Auto-delete head branches ON; draft PR opened for every new branch so it can be restored; closed-unmerged deleted nightly; stale at 14 days, closed at 21; branch-name ruleset; `release/<id>` deleted after its tag (§5.4) | Only `main` is long-lived; no stale branches |
 
 ### 5.15 Things that are easy to get wrong
 
@@ -633,7 +663,7 @@ Phase: P1 = needed to start building (DEV), P2 = before the first QA/UAT release
 - **Overlapping PRs on the same file.** If two PRs change the same ADF pipeline (or the same config key) and only the later one
   is released, the cherry-pick conflicts. The release tool catches it and names the missing PR, but the team should keep to one
   story per pipeline at a time and release dependent PRs together.
-- **main drifts from PROD.** Unreleased PRs accumulate on `main`, so DEV and every feature copy contain work that is not in PROD
+- **main drifts from PROD.** Unreleased PRs accumulate on `main`, so DEV and every developer DB contain work that is not in PROD
   yet. Review the `candidates` list (unreleased PRs) at every release planning and keep it short.
 - **ADF debug proves logic, not operations.** Debug runs do not exercise triggers, and they use the DEV integration runtime and
   DEV data. Scheduling, volume and performance are first proven in QA.
@@ -1520,9 +1550,9 @@ requests, raised and checked **by hand**, no integration), Microsoft Entra ID (m
 flowchart TB
   subgraph F["Gate 0 · Feature test (developer)"]
     direction LR
-    F1["Create branch<br/>feature/AB#5710-sap-sales"] --> F2["Push: feature-env workflow<br/>creates sqldb-etlcfg-ft-5710<br/>(copy of DEV + branch scripts)"]
+    F1["Create branch<br/>feature/AB#5710-sap-sales"] --> F2["devdb start: lease own DB<br/>sqldb-etlcfg-dev-alias<br/>(fresh DEV copy + branch scripts)"]
     F2 --> F3["Deploy own bundle<br/>databricks bundle deploy -t dev"]
-    F3 --> F4["ADF debug on branch<br/>configDb = ft-5710<br/>run succeeds, copy run ID"]
+    F3 --> F4["ADF debug on branch<br/>configDb = own DB<br/>run succeeds, copy run ID"]
   end
   subgraph P["Gate 1 · Pull request (tech lead)"]
     direction LR
@@ -1531,7 +1561,7 @@ flowchart TB
   end
   subgraph D["Automatic"]
     direction LR
-    D1["deploy-dev<br/>DEV updated"] --> D2["feature-cleanup<br/>feature DB dropped"]
+    D1["deploy-dev<br/>DEV updated"] --> D2["Branch deleted<br/>own DB reset to DEV copy"]
   end
   subgraph C["Gate 2 · Release cut (any developer)"]
     direction LR
@@ -1591,18 +1621,17 @@ Steps (sunny day):
 1. Create the branch from `main`: `feature/AB#<story>-<short-desc>` (or `bugfix/…`).
 2. Make the change: ADF pipeline JSON in `adf/`, Databricks code in `databricks/`, config rows in `sqlconfig/Data/<area>/<KEY>.sql`
    (one MERGE file per config key, environment values as SQLCMD variables, never hardcoded).
-3. Push. The `feature-env` workflow:
-   - copies the DEV config DB to **`sqldb-etlcfg-ft-<story>`** (a snapshot of DEV, which always equals `main`),
-   - publishes the branch's DACPAC and config rows to the copy,
-   - grants the developers group write access to the copy,
-   - prints the debug parameters to use.
+3. Run **`devdb` → `start`** from the branch. It leases the developer's own DB **`sqldb-etlcfg-dev-<alias>`** to this branch,
+   refreshes it from DEV if DEV has changed since it was copied (waits for the copy and verifies it), sanitises it (output targets
+   point at the developer's own folder and schema, schedules off) and publishes the branch's DACPAC and config rows.
+   Every later push that touches `sqlconfig/**` deploys incrementally to the same DB.
 4. Deploy the Databricks bundle in development mode: `databricks bundle deploy -t dev`. Jobs get the developer's prefix and a
    personal `dev_<user>` schema.
 5. In ADF Studio (Git mode, branch selected), click **Debug** with:
-   - `configDb = sqldb-etlcfg-ft-<story>`,
+   - `configDb = sqldb-etlcfg-dev-<alias>`,
    - the developer's bundle job/notebook path,
-   - a per-branch output target (e.g. lake folder `…/_feature/<story>/`, schema `dev_<user>`),
-   - if needed, a watermark set back in the copy so a real load is tested.
+   - the developer's output target (lake folder `…/_feature/<alias>/`, schema `dev_<alias>`; set by sanitise),
+   - if needed, a watermark set back in their DB so a real load is tested.
 6. The run succeeds. Copy the **run ID** from the Output tab (or Monitor → Pipeline runs → Debug).
 
 Exit: a successful run ID. Nothing shared (DEV config DB, DEV watermarks, other developers) was touched.
@@ -1621,7 +1650,7 @@ Rollback: delete etl.source_config row 'SAP_SALES'
 All ten checks must pass:
 1. **Description** follows the template: what changed, why, how it was tested, per project type touched.
 2. **Linked story**: `AB#<id>`, one story per PR.
-3. **Feature test proof**: the pipeline calls the ADF API and confirms the run ID exists in the DEV factory, **succeeded**, and is recent.
+3. **Feature test proof**: the pipeline calls the ADF API and confirms the run ID exists in the DEV factory, **succeeded**, is recent, used the author's DB, and that DB was at the PR's commit.
 4. **Reviewer**: the tech lead (CODEOWNERS) approves. The author cannot approve their own PR; a new push resets the approval.
 5. **Automated checks**: ADF validate, `databricks bundle validate`, SQL project (DACPAC) build, unit tests, settings files have identical keys.
 6. **No secrets and no hardcoded environment values** (server names, storage accounts, URLs): a scan blocks the PR.
@@ -1635,7 +1664,7 @@ Exit: the PR is squash-merged as one commit on `main`. The story moves to "Done 
 ### 5.3 Merge to `main` → DEV (automatic)
 
 - `deploy-dev` deploys `main` to DEV in the standard order (§3). DEV now contains the change.
-- `feature-cleanup` drops `sqldb-etlcfg-ft-<story>` because the PR is closed.
+- The branch is **deleted automatically** (mandatory, no exceptions) and `devdb-reset` resets the developer's DB to a fresh DEV copy, ready for the next story.
 - Nothing in QA, UAT or PROD changes. The PR now waits on `main` until a developer lists it in a release.
 
 ### 5.4 Gate 2: Release cut (any developer, for their own PRs)
@@ -1708,13 +1737,13 @@ notebook. A second, already-merged PR **#1242** (story AB#5692) adds a terminal-
 | Step | Who | What happens | Evidence |
 |---|---|---|---|
 | 1 | Developer | Creates `feature/AB#5710-sap-sales` from `main`; adds `pl_ingest_sap_sales`, `Data/sources/SAP_SALES.sql` (server name as SQLCMD variable), notebook + job in the bundle | Commits on the branch |
-| 2 | feature-env | Copies DEV config DB → `sqldb-etlcfg-ft-5710`; publishes the branch DACPAC + SAP_SALES row | Workflow run |
+| 2 | devdb start | Leases `sqldb-etlcfg-dev-asha` to the branch; refreshes from DEV; publishes the branch DACPAC + SAP_SALES row | Workflow run |
 | 3 | Developer | `databricks bundle deploy -t dev` → personal jobs and `dev_<user>` schema | Bundle deployment |
-| 4 | Developer | ADF Debug with `configDb = sqldb-etlcfg-ft-5710`, own output folder; run succeeds | Run ID `3f9c2a1e…` |
+| 4 | Developer | ADF Debug with `configDb = sqldb-etlcfg-dev-asha`, own output folder; run succeeds | Run ID `3f9c2a1e…` |
 | 5 | Developer | Opens PR **#1256** with AB#5710, Feature-Test-Run, Release-Note, Depends-On: none, Rollback | PR |
 | 6 | pr-validation | All checks green, including ADF API confirmation that run `3f9c2a1e…` succeeded | Check runs |
 | 7 | Tech lead | Reviews and approves; PR squash-merged | Approval, squash commit |
-| 8 | deploy-dev / cleanup | DEV updated; `sqldb-etlcfg-ft-5710` dropped | Workflow runs |
+| 8 | deploy-dev / reset | DEV updated; branch deleted; `sqldb-etlcfg-dev-asha` reset to a fresh DEV copy | Workflow runs |
 | 9 | Developer | Runs `release` with `pr_list = 1256,1242`, `confirm = false`; reviews the preview | Preview summary |
 | 10 | Developer | Runs again with `confirm = true`; queue free, guards and validations pass; `release/R2026.11.01` cut and built | Manifest, artifact, CR text |
 | 11 | release | Deploys QA automatically; stories AB#5710 and AB#5692 → In QA | Deploy job |
@@ -1732,7 +1761,7 @@ sequenceDiagram
   autonumber
   actor Dev as Developer
   participant GH as GitHub Actions
-  participant FDB as Feature config DB
+  participant FDB as Developer config DB
   participant ADF as ADF (DEV, Git mode)
   actor TL as Tech lead
   participant QA as QA env
@@ -1743,13 +1772,13 @@ sequenceDiagram
   participant SN as ServiceNow (manual)
   participant PRD as PROD
   Dev->>GH: push feature/AB#5710-sap-sales
-  GH->>FDB: copy DEV config DB, apply branch scripts
-  Dev->>ADF: Debug with configDb = ft-5710
+  GH->>FDB: devdb start: lease, refresh from DEV, apply branch scripts
+  Dev->>ADF: Debug with configDb = own DB
   ADF-->>Dev: run succeeded, run ID
   Dev->>GH: open PR 1256 (AB#, run ID, notes)
   GH->>ADF: verify run ID succeeded
   TL->>GH: approve, squash merge
-  GH->>GH: deploy DEV, drop feature DB
+  GH->>GH: deploy DEV, delete branch, reset own DB
   Dev->>GH: release preview, then confirm (1256, 1242)
   GH->>GH: queue check, guards, validations, cut, build once
   GH->>QA: deploy (automatic)
@@ -1792,13 +1821,13 @@ stateDiagram-v2
 | Item | Convention |
 |---|---|
 | Feature branch | `feature/AB#<story>-<desc>`, `bugfix/AB#<story>-<desc>` |
-| Feature config DB | `sqldb-etlcfg-ft-<story>` (elastic pool on the DEV SQL server) |
+| Developer config DB | `sqldb-etlcfg-dev-<alias>`, one per developer (elastic pool on the DEV SQL server) |
 | PR body lines | `AB#`, `Feature-Test-Run:`, `Release-Note:`, `Depends-On:`, `Rollback:` |
 | Release ID / branch | `R<yyyy.MM.dd>[.n]` · `release/<id>` (release-bot only) |
 | Tags | `prod/<id>` (shipped), `dropped/<id>` (abandoned) (release-bot only) |
 | PR labels | `failed-qa`, `failed-uat` |
 | GitHub environments | `dev-feature`, `dev`, `release-cut`, `qa` (no approval), `uat` (QA lead), `prod` (release managers) |
-| Workflows | `pr-validation`, `feature-env`, `feature-cleanup`, `deploy-dev`, `release`, `drop-release`, `deploy-prod` |
+| Workflows | `pr-validation`, `devdb`, `devdb-reset`, `devdb-hygiene`, `branch-hygiene`, `deploy-dev`, `release`, `drop-release`, `deploy-prod` |
 | Settings | `settings/{dev,qa,uat,prod}.json`, same keys; secrets in Key Vault |
 
 Evidence for audit: PR (story, test run, approval) → manifest (PRs, commits, baseline) → workflow runs (each deploy) →
@@ -1812,9 +1841,13 @@ Status: **Decided** = agreed and in the design · **Proposed** = suggested, need
 
 | Scenario | How it's covered | Status / open idea |
 |---|---|---|
-| Feature run pulls zero rows (copy has DEV's current watermarks) | Developer resets the watermark in their copy; documented in feature-testing guide | Decided |
-| Feature copy goes stale on a long-lived branch | Re-run `feature-env` manually to refresh | Decided; idea: warn when the copy is older than N days |
-| Feature runs write to shared DEV lake paths/tables | Feature runs must write to a per-branch folder / personal schema | **Open (OQ-09)**: how outputs are separated today |
+| Feature run pulls zero rows (copy has DEV's current watermarks) | Developer resets the watermark in their DB; documented in feature-testing guide | Decided |
+| Developer DB falls behind DEV | Updating the branch from `main` deploys the merged scripts incrementally; `start` re-copies when DEV changed | Decided (D-28) |
+| Developer DB left leased / stale | Reset on merge or close; warning at 7 days without a push; reset at 14; nightly report | Decided (D-28) |
+| Developer needs two stories at once | One DB, one lease: finish or park the first (it rebuilds from Git with `start`); a second slot only by tech-lead decision | Decided (D-28) |
+| Workflow aimed at the wrong DB | Name pattern + roster guard; copy source fixed to DEV; identity scoped to the DEV server | Decided (D-28) |
+| Stale or abandoned branches | Auto-delete on merge; closed-unmerged deleted nightly; stale at 14 days, closed at 21; draft PR makes every deletion restorable | Decided (D-29) |
+| Feature runs write to shared DEV lake paths/tables | Sanitise points outputs at `…/_feature/<alias>/` and `dev_<alias>` | Decided (D-28); confirm current paths (OQ-09) |
 | ADF debug run ID expired or wrong | ADF API check fails the PR; developer re-runs debug | Decided |
 | PR touches the same pipeline as another open PR | Second PR must rebase on `main`; release cut catches dependency later | Decided; idea: CODEOWNERS per pipeline folder |
 | Secrets or hardcoded server names in code | Scan blocks the PR | Decided |
